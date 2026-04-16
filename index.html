@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dolt sync explainer — how a SQL database travels through a GitHub repo</title>
+<title>Beads + Git sync — how a task DB and a code repo share one fork</title>
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.5; }
   h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
@@ -15,6 +15,8 @@
   pre code { background: transparent; color: inherit; padding: 0; }
   .meta { background: #f4f4f4; padding: .8rem 1rem; border-radius: 6px; font-size: .92em; margin: 1rem 0; }
   .aha { background: #fff8d6; border-left: 4px solid #c0a02e; padding: .8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+  .tldr { background: #eaf3ff; border-left: 4px solid #0969da; padding: .8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+  .problem { background: #fbe9e7; border-left: 4px solid #c92a2a; padding: .8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
   details { margin: .8rem 0; padding: .6rem 1rem; background: #fafafa; border: 1px solid #e4e4e4; border-radius: 6px; }
   details > summary { cursor: pointer; font-weight: 600; color: #333; padding: .3rem 0; }
   details[open] { background: #fff; }
@@ -22,186 +24,174 @@
   .scenario-num { display: inline-block; width: 1.7rem; color: #999; font-variant-numeric: tabular-nums; }
   a { color: #0969da; }
   hr { border: none; border-top: 1px solid #e4e4e4; margin: 2.5rem 0; }
-  .tldr { background: #eaf3ff; border-left: 4px solid #0969da; padding: .8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92em; }
+  th { background: #f4f4f4; text-align: left; padding: .5rem .7rem; border-bottom: 1px solid #ddd; }
+  td { padding: .45rem .7rem; border-bottom: 1px solid #eee; vertical-align: top; }
 </style>
 </head>
 <body>
 
-<h1>Dolt sync, explained</h1>
+<h1>Beads + Git sync in one fork repo</h1>
 
 <div class="meta">
-  <strong>What this is:</strong> a walkthrough of how <a href="https://github.com/dolthub/dolt">Dolt</a> — a SQL database that versions like Git — syncs through a remote, with seven reproducible shell-script scenarios you can run yourself. Driven by a concrete use case: syncing <a href="https://github.com/steveyegge/beads">beads</a>, the task DB, across sessions and machines.<br>
-  <strong>Repo:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer">github.com/idvorkin-ai-tools/dolt-explainer</a> · <strong>Scenarios live in:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer/tree/main/scripts"><code>scripts/</code></a>
+  <strong>The problem:</strong> agents on multiple machines need to share task state (beads) in near-real-time, while the underlying blog is on the idvorkin / idvorkin-ai-tools fork workflow for code. Two data classes, one repo, different cadences.<br>
+  <strong>The trick:</strong> Dolt pushes the task DB to a sibling ref (<code>refs/dolt/data</code>) on the same GitHub repo that holds code on <code>refs/heads/main</code>. Git and Dolt never collide because they write disjoint refs.<br>
+  <strong>Repo:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer">github.com/idvorkin-ai-tools/dolt-explainer</a> · <strong>Scenarios:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer/tree/main/scripts"><code>scripts/</code></a>
 </div>
 
 <div class="tldr">
-  <strong>TL;DR.</strong> Dolt pushes a SQL database through any git remote — including a plain GitHub repo — by writing its chunks to a hidden ref <code>refs/dolt/data</code>. GitHub stores the blobs happily; GitHub's web UI doesn't render them (it only shows <code>refs/heads/*</code>). So a Dolt-backed GitHub repo looks empty in the browser but round-trips a full database via <code>dolt clone</code>.
+  <strong>TL;DR.</strong> <code>idvorkin-ai-tools/&lt;repo&gt;.git</code> carries two refs: <code>refs/heads/main</code> for code (flows through PR to <code>idvorkin/&lt;repo&gt;</code>) and <code>refs/dolt/data</code> for the beads task database (fork-only, many writers, merged row-by-row). The daily ritual <code>git pull --rebase &amp;&amp; bd dolt push &amp;&amp; git push</code> is exactly this dual-ref choreography.
 </div>
 
-<h2>The illusion</h2>
+<h2>The problem we're solving</h2>
 
-<p><img src="diagrams/refs-topology.svg" alt="A GitHub repo holds two refs after a dolt push: refs/heads/main with just the seed README (what the UI and git clone read) and refs/dolt/data with the chunk store (what dolt clone reads)." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
-
-<p>Dolt ships with its own remote protocol, but when you point it at a URL ending in <code>.git</code> it switches into <strong>git mode</strong>: it speaks the Git Smart HTTP protocol, uses your ordinary git credential helper, and pushes all its database state to a sibling ref called <code>refs/dolt/data</code>. A Dolt push looks like this on the wire:</p>
-
-<p><img src="diagrams/push-flow.svg" alt="Sequence diagram of a dolt push: user invokes dolt push, dolt auto-prefixes the URL with git+, asks the git credential helper for a token, then performs a git Smart HTTP send-pack that writes the chunk store to refs/dolt/data alongside refs/heads/main." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
-
-<pre><code>$ dolt remote add origin https://github.com/owner/repo.git
-$ dolt remote -v
-origin  git+https://github.com/owner/repo.git
-#       ^^^^ dolt auto-added this prefix
-$ dolt push -u origin main
-</code></pre>
-
-<p>What GitHub stores afterward, asked via <code>git ls-remote</code>:</p>
-
-<pre><code>$ git ls-remote https://github.com/owner/repo.git
-d4cc9f8…  HEAD
-0ede5af…  refs/dolt/data      &lt;- the entire database
-d4cc9f8…  refs/heads/main     &lt;- just the seed README
-</code></pre>
-
-<div class="aha">
-  <strong>Aha.</strong> GitHub's file browser renders only <code>refs/heads/main</code>. If <code>main</code> holds a single README commit, that's all a visitor sees. The chunks on <code>refs/dolt/data</code> are a tree of opaque files — <code>manifest</code>, a <code>.darc</code> archive, and content-addressed Noms chunks — that git stores faithfully but GitHub has no UI for.
+<div class="problem">
+  <strong>Constraints.</strong>
+  <ul style="margin:.3rem 0;">
+    <li>Agents create, close, and mutate beads issues <strong>constantly</strong> — every session, on whatever machine. Task state must visibly sync within minutes.</li>
+    <li>The blog has an <strong>authoritative upstream</strong> (<code>idvorkin/idvorkin.github.io</code>) that only a human updates via reviewed PRs from a fork (<code>idvorkin-ai-tools/idvorkin.github.io</code>).</li>
+    <li>We don't want a second repo for beads. Tasks belong with the code they reference — searchable together, clonable together.</li>
+    <li>Beads issues aren't authored prose. No human is going to review a PR that says "bd-123 status: in_progress → completed." They're operational state, not content.</li>
+  </ul>
 </div>
 
-<p>A vanilla <code>git clone</code> fetches only <code>refs/heads/*</code> and gets the README. A <code>dolt clone</code> fetches <code>refs/dolt/data</code> and rebuilds the database. Same URL, two realities.</p>
+<p>Put all four together and you get a constraint that forces the design: <strong>task state must flow freely between agents without a PR review step, while code must keep flowing through PR review, and both must live in the same repo.</strong></p>
 
-<p><strong>Want to see it on the real GitHub?</strong> The reference repo <a href="https://github.com/idvorkin-ai-tools/dolt-sync-test">idvorkin-ai-tools/dolt-sync-test</a> is kept as a permanent demo — look at the file browser (empty-ish), then <code>git ls-remote</code> the URL and spot the hidden ref.</p>
+<p>That's what the <code>refs/dolt/data</code> trick enables. Dolt pushes its database to a private ref on the same git repo that GitHub uses for code. GitHub's web UI (and <code>git clone</code>) only renders <code>refs/heads/*</code>, so the task DB is invisible to human workflows like PR review — exactly what we want — but every agent with a clone can <code>bd dolt push/pull</code> to stay in sync.</p>
 
-<h2>Conflicts are SQL rows</h2>
-<p>When two clones edit the same row, Dolt materializes the conflict as actual rows in a table called <code>dolt_conflicts_&lt;your_table&gt;</code>, with <code>base_*</code> / <code>our_*</code> / <code>their_*</code> columns. You resolve by querying and committing:</p>
+<h2>One repo, two refs, two workflows</h2>
 
-<pre><code>$ dolt sql -q 'SELECT * FROM dolt_conflicts_items;'
-$ dolt conflicts resolve --theirs items    # or --ours, or write SQL
-$ dolt commit -am 'merge: keep their value'</code></pre>
+<p><img src="diagrams/dual-sync.svg" alt="Dual-sync topology: one ai-tools fork repo carries refs/heads/main (code, flows through PR to upstream) and refs/dolt/data (beads task DB, fork-only, many concurrent writers). No collision because the two workflows write disjoint refs." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
 
-<p>That's arguably the biggest conceptual upgrade from git: conflict resolution becomes a database operation rather than a text-file merge.</p>
+<p>Code and beads cohabit one GitHub repo because they write different refs:</p>
 
-<hr>
-
-<h2>The fork-workflow problem</h2>
-
-<p>If you use the idvorkin / idvorkin-ai-tools split — canonical upstream owned by a human, fork writable by AI tools, landings go via GitHub PR — Dolt's ref layout introduces a hole the plain Git workflow doesn't have.</p>
-
-<p><img src="diagrams/fork-workflow.svg" alt="Dev box pushes refs/dolt/data to fork; refs/heads/main stays the seed commit on both fork and upstream. A PR fork-to-upstream compares refs/heads/main on both sides, which are identical, so the diff is empty. GitHub's Merge PR button advances refs/heads/main only, leaving refs/dolt/data on upstream stale. Only an admin pulling with dolt merge and pushing to upstream actually moves the data." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
-
-<p>Three things all go wrong at once:</p>
-
-<ol>
-  <li><strong><code>dolt push</code> doesn't update <code>refs/heads/main</code>.</strong> A Dolt push writes to <code>refs/dolt/data</code> only. The seed commit on <code>refs/heads/main</code> stays put, on both fork and upstream, from the moment the repo was created.</li>
-  <li><strong>GitHub's PR diff shows "nothing to compare."</strong> The compare view diffs <code>refs/heads/&lt;base&gt;..refs/heads/&lt;head&gt;</code>. Both sides are the same seed commit, so GitHub says the PR is empty — even though the fork's database differs from upstream's.</li>
-  <li><strong>GitHub's "Merge PR" button only advances <code>refs/heads/main</code>.</strong> It can't move <code>refs/dolt/data</code>. Clicking Merge changes nothing for the database. The data stays on the fork; upstream's <code>refs/dolt/data</code> is still whatever it was before the PR was opened.</li>
-</ol>
-
-<p>The only path that actually lands AI-tools' data into upstream is one the AI tools can't take, because they don't have upstream write:</p>
-
-<pre><code># Human admin with upstream write runs locally:
-dolt remote add fork https://github.com/idvorkin-ai-tools/dolt-thing.git
-dolt fetch fork main
-dolt merge fork/main
-dolt push upstream main       # this push carries refs/dolt/data to upstream</code></pre>
-
-<p>If you want a fork-model where AI tools can fully self-serve, the options are:</p>
-
-<ul>
-  <li>Ship AI tools upstream write (defeats the fork boundary).</li>
-  <li>Add a GitHub Action on upstream that reacts to PR-merged and pulls <code>refs/dolt/data</code> from the fork. Doable, but you're writing custom glue every time.</li>
-  <li>Use <a href="https://www.dolthub.com/">DoltHub</a> instead of GitHub as the remote — it has dolt-aware pull requests that diff tables and merge <code>refs/dolt/data</code> when you click Merge.</li>
-</ul>
-
-<p>Scenario 7 below reproduces all three failure modes locally with two bare git repos standing in for upstream and fork.</p>
-
-<hr>
-
-<h2>Why we use Dolt anyway: beads sync</h2>
-
-<p>The fork/PR model is fit for <em>authored</em> content — prose, code, skills — where a human adds value by reviewing line-level diffs and deciding whether the change lands. But the ai-tools ecosystem also produces <em>operational</em> data: task state written by agents, read by other agents, no human author. Beads (<code>bd</code>) is the canonical example — it stores issues in a Dolt database and syncs with <code>bd dolt push</code> / <code>bd dolt pull</code>. Every session on every machine writes to it; every session reads from it.</p>
-
-<p><img src="diagrams/beads-multi-writer.svg" alt="Multiple sessions on different machines each push and pull to a single ai-tools-owned dolt repo. No upstream, no PR review. Concurrent writes merge row-by-row; same-row conflicts resolve via dolt_conflicts_* tables." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
-
-<p>The pattern: <strong>one Dolt-backed repo under <code>idvorkin-ai-tools/</code>, no upstream, every agent pushes and pulls directly.</strong> That inverts the blog-code workflow deliberately, and it's the inversion the fork-hole analysis above pushes you toward.</p>
-
-<h3>Why this model fits task data (and wouldn't fit a blog post)</h3>
-
-<table style="border-collapse:collapse;width:100%;margin:1rem 0;font-size:.92em;">
-<thead style="background:#f4f4f4;">
-<tr><th style="text-align:left;padding:.5rem .7rem;border-bottom:1px solid #ddd;">Blog code (authored, upstream + fork)</th><th style="text-align:left;padding:.5rem .7rem;border-bottom:1px solid #ddd;">Beads data (operational, ai-tools only)</th></tr>
+<table>
+<thead>
+<tr><th>Data class</th><th>Ref</th><th>Who writes</th><th>Where it flows</th><th>How it merges</th></tr>
 </thead>
 <tbody>
-<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Prose and code — needs human review</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Task state — written by agents, not authored</td></tr>
-<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Line-level diffs a human reads on GitHub</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Row-level diffs nobody is going to review on a PR ("bd-123 in_progress → completed")</td></tr>
-<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">One writer at a time via PR merges</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Many concurrent writers — every session on every machine</td></tr>
-<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Conflicts are rare and human-resolved</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Conflicts would be constant if serialized through PRs — Dolt's row-level three-way merge makes them tolerable without a reviewer</td></tr>
+<tr><td>Blog code & prose</td><td><code>refs/heads/main</code>, <code>refs/heads/&lt;branch&gt;</code></td><td>You, via <code>git push</code></td><td>Fork → upstream via PR</td><td>Human review + git merge / rebase</td></tr>
+<tr><td>Beads task DB</td><td><code>refs/dolt/data</code></td><td>Every agent on every machine, via <code>bd dolt push</code></td><td>Fork only — never flows to upstream</td><td>Dolt row-level three-way merge; conflicts become queryable SQL rows</td></tr>
 </tbody>
 </table>
 
-<h3>Why Dolt specifically (not SQLite-in-git, not Postgres)</h3>
+<h2>The daily workflow</h2>
+
+<p>The <a href="https://github.com/idvorkin/idvorkin.github.io/blob/main/CLAUDE.md">blog's CLAUDE.md</a> session-completion ritual:</p>
+
+<pre><code>git pull --rebase        # pull others' code onto my local main
+bd dolt push             # share my beads writes to the fork's refs/dolt/data
+git push                 # share my code to the fork's refs/heads/main</code></pre>
+
+<p>Why this order?</p>
+
 <ol>
-  <li><strong>Mergeable by rows, not bytes.</strong> A SQLite file in git is an unmergeable binary blob — two sessions writing at once = immediate conflict mess. Dolt merges at the row level (see scenario 4), so concurrent agents almost always merge clean.</li>
-  <li><strong>No server, no credentials.</strong> Just GitHub as a dumb chunk store. <code>bd dolt push</code> is <code>git push</code> with a SQL database onboard. No RDS, no Postgres instance, no secret rotation.</li>
-  <li><strong>Audit trail for free.</strong> <code>dolt log</code> + <code>dolt diff</code> give per-row history. Which session closed bd-123? When? From what state? Answerable.</li>
-  <li><strong>Offline-first.</strong> Sessions commit locally; push when online. Network blips don't break agents mid-write.</li>
+  <li><strong><code>git pull --rebase</code> first</strong> so a concurrent <code>git push</code> from another session doesn't reject yours as non-fast-forward. Classic git hygiene, applies as normal.</li>
+  <li><strong><code>bd dolt push</code> before <code>git push</code></strong> because the beads push is independent of the code push — if the code push fails, the beads push has already shared your task state, which is the more time-sensitive of the two. Skipping this is how stranded beads happen: you close 10 issues, crash your session, and nobody else sees any of them.</li>
+  <li><strong><code>git push</code> last</strong> because that's what everyone else is watching for code updates.</li>
 </ol>
 
-<p><strong>The trade accepted:</strong> no human PR review of beads changes. Task state isn't authored content, so that's fine. Anything that IS authored — blog posts, skills, code — stays on the git + fork + PR model.</p>
+<h2>How the two refs stay separate</h2>
+
+<p><img src="diagrams/refs-topology.svg" alt="A GitHub repo holds two refs: refs/heads/main with the code (what the UI and git clone read) and refs/dolt/data with the beads chunk store (what bd dolt clone reads). Disjoint refs, disjoint users." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
+<p>Dolt ships with its own remote protocol, but when you point it at a URL ending in <code>.git</code> it switches into <strong>git mode</strong>: it speaks the Git Smart HTTP protocol, uses your ordinary git credential helper, and pushes all its database state to a sibling ref called <code>refs/dolt/data</code>. <code>bd dolt push</code> is a thin wrapper around that.</p>
+
+<pre><code>$ bd dolt remote list
+origin  git+https://github.com/idvorkin-ai-tools/idvorkin.github.io.git
+#       ^^^^ dolt auto-added this prefix — URL ends in .git -> git mode</code></pre>
+
+<p>What the repo holds after a bd dolt push, asked via <code>git ls-remote</code>:</p>
+
+<pre><code>$ git ls-remote https://github.com/idvorkin-ai-tools/idvorkin.github.io.git
+abc1234…  HEAD
+def5678…  refs/dolt/data          &lt;- beads task DB
+abc1234…  refs/heads/main         &lt;- code, PRs, branches
+abc1234…  refs/heads/feature-X    &lt;- more code branches
+# ...</code></pre>
+
+<p><img src="diagrams/push-flow.svg" alt="Sequence diagram: bd dolt push asks the git credential helper for a token, then does a git send-pack via Smart HTTP that writes the beads chunk store to refs/dolt/data alongside whatever refs/heads/* exist." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
+<div class="aha">
+  <strong>Aha.</strong> GitHub's file browser renders only <code>refs/heads/*</code>. If code on <code>main</code> hasn't changed, GitHub looks identical before and after a beads push — even though your task DB is completely different. A vanilla <code>git clone</code> fetches only <code>refs/heads/*</code> and misses beads entirely. You need <code>bd dolt clone</code> (or <code>dolt clone</code> directly) to rehydrate the task DB.
+</div>
+
+<h2>Why beads never flows to upstream</h2>
+
+<p><img src="diagrams/fork-workflow.svg" alt="Dev box pushes refs/dolt/data to fork; refs/heads/main stays the seed commit on both fork and upstream. A PR fork-to-upstream compares refs/heads/main on both sides which are identical, so the diff is empty. GitHub's Merge PR button advances refs/heads/main only, leaving refs/dolt/data on upstream stale." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
+<p>If you tried to run beads through the code workflow — "open a PR with my task changes, have Igor review and merge" — three things would break:</p>
+
+<ol>
+  <li><strong><code>bd dolt push</code> doesn't update <code>refs/heads/main</code>.</strong> It only writes <code>refs/dolt/data</code>. A PR opened after a beads push would show identical <code>refs/heads/main</code> on both sides.</li>
+  <li><strong>GitHub's PR "Files changed" tab would be empty.</strong> The compare view diffs <code>refs/heads/&lt;base&gt;..refs/heads/&lt;head&gt;</code>. Both sides are the same commit → "nothing to compare." Igor has no visual diff of the task changes.</li>
+  <li><strong>The "Merge PR" button only advances <code>refs/heads/main</code>.</strong> It cannot move <code>refs/dolt/data</code>. Clicking Merge would change nothing about upstream's beads DB.</li>
+</ol>
+
+<p>None of this is a bug — it's the intended behaviour. <strong>Beads is not supposed to flow to upstream.</strong> The fork is the authoritative task store; upstream should never see it.</p>
+
+<h2>Why agents don't collide on beads writes</h2>
+
+<p><img src="diagrams/beads-multi-writer.svg" alt="Multiple sessions on different machines each push and pull to a single ai-tools-owned beads repo. Concurrent writes merge row-by-row; same-row conflicts resolve via dolt_conflicts_* tables." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
+<p>Many concurrent writers would be unworkable with SQLite-in-git (unmergeable binary blob) or with a GitHub PR per task change (serialized, reviewed). Dolt's row-level three-way merge makes it routine:</p>
+
+<ul>
+  <li><strong>Different rows:</strong> two agents creating different issues, or one closing <code>bd-42</code> while another updates <code>bd-99</code>, merge automatically on the next <code>bd dolt pull</code> → <code>bd dolt push</code>.</li>
+  <li><strong>Same row:</strong> two agents touching <code>bd-123</code> at the same time produce a cell-level conflict stored as actual rows in <code>dolt_conflicts_issues</code> with <code>base_*</code>/<code>our_*</code>/<code>their_*</code> columns. You resolve via SQL or <code>dolt conflicts resolve --theirs</code>, commit the merge, push.</li>
+</ul>
+
+<p>Scenarios 4 and 5 show both paths end-to-end.</p>
 
 <hr>
 
 <h2>Scenarios</h2>
-<p>Six reproducible shell scripts. Each wipes its own run directory, sets up fresh state, and leaves artifacts for you to poke at. <code>./scripts/run-all.sh</code> runs them end-to-end in ~20 seconds, offline.</p>
+
+<p>Seven reproducible shell scripts. Each wipes its own run directory, sets up fresh state, leaves artifacts for you to poke at. <code>./scripts/run-all.sh</code> runs them end-to-end in ~20 seconds, offline. Scenarios use a generic <code>items</code> table but the mechanics are identical to what beads does with its issues table.</p>
 
 <details id="s1">
-  <summary><span class="scenario-num">1.</span> Bootstrap — <em>init, table, commit, log, query</em></summary>
-  <p>Dolt's basic &ldquo;git for tables&rdquo; loop. Init a database, create a schema, insert rows, stage and commit. <code>dolt log</code> and <code>dolt status</code> behave like their git counterparts; the data is stored in Dolt's own chunk format, not as SQL text.</p>
+  <summary><span class="scenario-num">1.</span> Bootstrap — <em>the shape of an initialized beads-like DB</em></summary>
+  <p>Init a database, create a schema, insert rows, stage and commit. Same two-phase model as git. This is what <code>bd init</code> produces minus the beads schema.</p>
   <pre><code id="t1">Loading…</code></pre>
 </details>
 
 <details id="s2">
-  <summary><span class="scenario-num">2.</span> File remote — <em>push → <code>file://</code> → clone into a second dir</em></summary>
-  <p>A Dolt remote is a directory of content-addressed chunks. <code>dolt push</code> materializes them on disk; <code>dolt clone</code> pulls them into a new working copy. No server required.</p>
+  <summary><span class="scenario-num">2.</span> First push — <em>publishing your task DB to the shared fork</em></summary>
+  <p>Add a remote, push, clone into a second working copy. This is what the first <code>bd dolt push</code> on a new repo does: materializes the chunk store on the fork so other sessions can fetch it.</p>
   <pre><code id="t2">Loading…</code></pre>
 </details>
 
 <details id="s3">
-  <summary><span class="scenario-num">3.</span> Round-trip — <em>edit in B, pull in A</em></summary>
-  <p>Clone B adds a row and pushes. Clone A pulls and sees the row. History preserves B's author/message on A's side — same as git.</p>
+  <summary><span class="scenario-num">3.</span> Round-trip — <em>another session pulls your change</em></summary>
+  <p>Session B adds an issue, pushes. Session A pulls and sees it. History preserves B's author/message on A's side — exactly what you want for "who closed bd-42 and when."</p>
   <pre><code id="t3">Loading…</code></pre>
 </details>
 
 <details id="s4">
-  <summary><span class="scenario-num">4.</span> Clean merge — <em>concurrent inserts on <strong>different</strong> rows</em></summary>
-  <p>A and B each insert a different row. First push wins; second hits non-fast-forward. <code>dolt pull</code> runs a three-way merge with no human input — the result has a merge commit and both rows.</p>
+  <summary><span class="scenario-num">4.</span> Concurrent writes, different rows — <em>clean three-way merge</em></summary>
+  <p>Two agents create or update different issues simultaneously. First push wins; second hits non-fast-forward; <code>bd dolt pull</code> runs a three-way merge with no human input. History ends with a merge commit; both changes land.</p>
   <pre><code id="t4">Loading…</code></pre>
 </details>
 
 <details id="s5">
-  <summary><span class="scenario-num">5.</span> Conflict — <em>concurrent edits to the <strong>same</strong> row</em></summary>
-  <p>Merge stops. The conflict is stored as a row in <code>dolt_conflicts_items</code> with <code>base_*</code> / <code>our_*</code> / <code>their_*</code> columns. Resolve with <code>dolt conflicts resolve --theirs</code> (or write SQL), commit the merge, push.</p>
+  <summary><span class="scenario-num">5.</span> Same-row conflict — <em>two agents touch bd-123 at once</em></summary>
+  <p>Merge stops with a cell-level conflict stored as a row in <code>dolt_conflicts_&lt;table&gt;</code> (<code>base_*</code>/<code>our_*</code>/<code>their_*</code> columns). Resolve with <code>dolt conflicts resolve --theirs</code> or write SQL, commit the merge, push. Rare in practice — most agent work touches different issues.</p>
   <pre><code id="t5">Loading…</code></pre>
 </details>
 
-<details id="s6" open>
-  <summary><span class="scenario-num">6.</span> GitHub illusion — <em>bare git as fake GitHub</em></summary>
-  <p>Push a Dolt database to a bare git repo (stand-in for GitHub). <code>git log refs/heads/main</code> shows only the seed README (what the web UI would render). <code>git ls-remote</code> reveals the hidden <code>refs/dolt/data</code>. <code>dolt clone</code> fetches it and rebuilds the database. A vanilla <code>git clone</code> gets only the README.</p>
+<details id="s6">
+  <summary><span class="scenario-num">6.</span> Why GitHub doesn't show beads commits — <em>the dual-ref illusion</em></summary>
+  <p>Push a DB to a bare git repo (stand-in for GitHub). <code>git log refs/heads/main</code> shows only the code. <code>git ls-remote</code> reveals the hidden <code>refs/dolt/data</code>. <code>bd dolt clone</code> (or raw <code>dolt clone</code>) fetches both refs. A vanilla <code>git clone</code> gets only the code side.</p>
   <pre><code id="t6">Loading…</code></pre>
 </details>
 
 <details id="s7">
-  <summary><span class="scenario-num">7.</span> Fork workflow — <em>upstream + fork + the PR hole</em></summary>
-  <p>Two bare git repos simulate the idvorkin / idvorkin-ai-tools pattern. Dev pushes to fork; compare fork's and upstream's refs. Observe that the PR diff view would be empty and that GitHub's merge button does not move <code>refs/dolt/data</code>. Ends with the only workflow that actually works: admin pulls from fork, <code>dolt merge</code>s locally, and pushes to upstream.</p>
+  <summary><span class="scenario-num">7.</span> The fork-workflow hole — <em>what would happen if beads tried to PR to upstream</em></summary>
+  <p>Two bare git repos stand in for idvorkin/upstream and idvorkin-ai-tools/fork. Agent pushes beads to fork. We compute what a fork-to-upstream PR would actually see (answer: nothing), and what clicking Merge would do (answer: nothing useful). Ends with the only path that works: admin pulls locally with <code>dolt merge</code> and pushes upstream — which we intentionally don't wire up for beads.</p>
   <pre><code id="t7">Loading…</code></pre>
 </details>
 
 <hr>
-
-<h2>Research notes</h2>
-<ul>
-  <li><a href="docs/research/findings.md">findings.md</a> — the full writeup from the research session that preceded this explainer</li>
-  <li><a href="docs/research/mental-model.md">mental-model.md</a> — a git-user's cheat sheet for Dolt remotes</li>
-  <li><a href="docs/research/archetype-recommendation.md">archetype-recommendation.md</a> — why timeline-explorer would be the next iteration if this static page stops being enough</li>
-  <li><a href="docs/research/GITHUB-DEMO-REPO.md">GITHUB-DEMO-REPO.md</a> — notes on the preserved live-GitHub reference repo</li>
-</ul>
 
 <h2>Running the scenarios yourself</h2>
 <pre><code>git clone https://github.com/idvorkin-ai-tools/dolt-explainer.git
@@ -210,10 +200,15 @@ brew install dolt                    # or the user-local installer
 ./scripts/run-all.sh                 # ~20 s, offline, writes to runs/
 ./scripts/run-all.sh --live          # also run 06b against real GitHub (needs gh auth)</code></pre>
 
+<h2>Research notes</h2>
+<ul>
+  <li><a href="docs/research/findings.md">findings.md</a> — full writeup of the underlying Dolt-through-Git behaviour</li>
+  <li><a href="docs/research/mental-model.md">mental-model.md</a> — git-user's cheat sheet for Dolt remotes</li>
+  <li><a href="docs/research/archetype-recommendation.md">archetype-recommendation.md</a> — when this plain HTML explainer should graduate to a real interactive visualization</li>
+  <li><a href="docs/research/GITHUB-DEMO-REPO.md">GITHUB-DEMO-REPO.md</a> — notes on the preserved live-GitHub reference repo</li>
+</ul>
+
 <script>
-// Fetch the six transcripts and inject them into their <pre><code> blocks.
-// Done in-page so the HTML is small and the transcripts stay authoritative
-// (edit the scripts, re-run, commit — the page updates automatically).
 const TRANSCRIPTS = [
   {id: 't1', src: 'transcripts/01-bootstrap.txt'},
   {id: 't2', src: 'transcripts/02-file-remote.txt'},

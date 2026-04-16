@@ -1,0 +1,53 @@
+@startuml dual-sync
+title One fork repo, two refs, two sync paths — code vs task state
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+    RoundCorner 8
+}
+skinparam cloud {
+    BackgroundColor #FFF8D6
+    BorderColor #C0A02E
+}
+
+cloud "idvorkin/idvorkin.github.io\n(upstream — human authority)" as UP #E6F4EA {
+    rectangle "refs/heads/main\n(authored content)" as UP_H #D9EDFF
+}
+
+cloud "idvorkin-ai-tools/idvorkin.github.io\n(fork — AI-tools writable)" as FK #FFF8D6 {
+    rectangle "refs/heads/main\n(code, branches)" as FK_H #D9EDFF
+    rectangle "refs/dolt/data\n(beads task DB)" as FK_D #C4E2AC
+}
+
+node "Session A" as A #EAF3FF
+node "Session B" as B #EAF3FF
+node "Session C" as C #EAF3FF
+
+A -[#0969DA]-> FK_H : git push\n(code)
+A -[#C0A02E]-> FK_D : bd dolt push\n(tasks)
+B -[#0969DA]-> FK_H : git push
+B -[#C0A02E]-> FK_D : bd dolt push
+C -[#0969DA]-> FK_H : git push
+C -[#C0A02E]-> FK_D : bd dolt push
+
+FK_H -[#0969DA,thickness=3]-> UP_H : PR merge\n(human review)
+
+note right of FK_D
+  No upstream for beads.
+  The fork is the authoritative
+  task DB. Many writers merge
+  row-by-row.
+end note
+
+note bottom of FK
+  Two refs, two workflows, one repo.
+  Code: fork -> upstream via PR.
+  Beads: fork-only, many writers, row-level merge.
+  They never collide because they write disjoint refs.
+end note
+
+@enduml
