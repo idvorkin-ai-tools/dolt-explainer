@@ -1,0 +1,38 @@
+@startuml refs-topology
+title What a Dolt-backed GitHub repo actually contains
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+}
+skinparam node {
+    BackgroundColor #EAF3FF
+    BorderColor #0969DA
+}
+skinparam cloud {
+    BackgroundColor #FFF8D6
+    BorderColor #C0A02E
+}
+
+cloud "github.com/owner/repo.git\n(bare git repo)" as GH {
+    rectangle "**refs/heads/main**\n(seed commit)\n\ntree:\n  README.md" as HEADS #D9EDFF
+    rectangle "**refs/dolt/data**\n(dolt's private ref)\n\ntree:\n  manifest\n  <chunk>.darc\n  <noms-chunks>" as DOLT #FFE7A8
+}
+
+node "GitHub web UI /\nvanilla `git clone`" as BROWSER
+node "`dolt clone`" as DOLT_CLONE
+
+BROWSER -[#0969DA]-> HEADS : reads refs/heads/*\nsees: "just a README"
+DOLT_CLONE -[#C0A02E]-> DOLT : fetches refs/dolt/data\nreconstructs: full SQL database
+DOLT_CLONE -[#C0A02E,dashed]-> HEADS : also sees main\n(the README commit)
+
+note bottom of GH
+  Same bytes, same URL, two different realities —
+  because GitHub's UI (and `git clone`) only
+  follows `refs/heads/*`, not arbitrary refs.
+end note
+
+@enduml

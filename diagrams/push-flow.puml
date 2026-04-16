@@ -1,0 +1,34 @@
+@startuml push-flow
+title `dolt push` through a GitHub URL
+
+skinparam sequenceMessageAlign center
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam sequence {
+    ArrowColor #0969DA
+    LifeLineBorderColor #0969DA
+    LifeLineBackgroundColor #EAF3FF
+    ParticipantBorderColor #0969DA
+    ParticipantBackgroundColor #EAF3FF
+    ActorBorderColor #0969DA
+    ActorBackgroundColor #D9EDFF
+}
+
+actor "you" as USER
+participant "dolt" as DOLT
+participant "git credential\nhelper" as CRED
+participant "github.com\n(Smart HTTP)" as GH
+database "refs/dolt/data\n(on GitHub)" as REF
+
+USER -> DOLT : dolt remote add origin\n  https://github.com/.../repo.git
+note right of DOLT : URL ends in .git →\n  auto-prefix with git+
+USER -> DOLT : dolt push -u origin main
+DOLT -> CRED : ask for credentials\n(same helper git uses)
+CRED --> DOLT : token
+DOLT -> GH : git send-pack (Smart HTTP)\nwith refs/dolt/data and refs/heads/main
+GH -> REF : store chunks as git blobs\non refs/dolt/data
+GH --> DOLT : ok (new branch, new ref)
+DOLT --> USER : "* [new branch] main -> main"
+
+@enduml

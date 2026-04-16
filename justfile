@@ -21,6 +21,10 @@ rebuild-transcripts:
         ./scripts/$s.sh 2>&1 | sed -r 's/\x1b\[[0-9;]*[mGKH]//g' > transcripts/$s.txt
     done
 
+# Re-render all PlantUML diagrams/*.puml -> diagrams/*.svg
+build-diagrams:
+    plantuml -tsvg diagrams/*.puml
+
 # Serve index.html locally for preview (port 8000)
 serve:
     python3 -m http.server 8000

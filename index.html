@@ -39,7 +39,12 @@
 </div>
 
 <h2>The illusion</h2>
+
+<p><img src="diagrams/refs-topology.svg" alt="A GitHub repo holds two refs after a dolt push: refs/heads/main with just the seed README (what the UI and git clone read) and refs/dolt/data with the chunk store (what dolt clone reads)." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
 <p>Dolt ships with its own remote protocol, but when you point it at a URL ending in <code>.git</code> it switches into <strong>git mode</strong>: it speaks the Git Smart HTTP protocol, uses your ordinary git credential helper, and pushes all its database state to a sibling ref called <code>refs/dolt/data</code>. A Dolt push looks like this on the wire:</p>
+
+<p><img src="diagrams/push-flow.svg" alt="Sequence diagram of a dolt push: user invokes dolt push, dolt auto-prefixes the URL with git+, asks the git credential helper for a token, then performs a git Smart HTTP send-pack that writes the chunk store to refs/dolt/data alongside refs/heads/main." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
 
 <pre><code>$ dolt remote add origin https://github.com/owner/repo.git
 $ dolt remote -v
