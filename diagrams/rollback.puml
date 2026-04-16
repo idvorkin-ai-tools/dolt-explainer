@@ -1,0 +1,32 @@
+@startuml rollback
+title Rollback: task state is version-controlled like code
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+    RoundCorner 6
+}
+
+rectangle "Mon 09:00\n`bd create`\nbd-42: Fix auth bug" as T1 #D9EDFF
+rectangle "Mon 14:00\n`bd update bd-42 in_progress`" as T2 #D9EDFF
+rectangle "Tue 10:00\nBulk automation runs\n❌ wrong query\n**80 issues auto-closed**" as BAD #F5C2C7
+rectangle "Tue 10:05\n`dolt log --oneline`\nsee the bad commit" as T4 #FFF8D6
+rectangle "Tue 10:06\n`dolt reset --hard HEAD~1`\nreverts task DB" as T5 #C4E2AC
+rectangle "Tue 10:07\n`bd dolt push`\nshares the recovery" as T6 #C4E2AC
+
+T1 -right-> T2
+T2 -right-> BAD
+BAD -down-> T4
+T4 -left-> T5
+T5 -left-> T6
+
+note bottom of BAD
+  With Linear/Jira this is "call support,
+  hope for the best." With beads it is
+  one git-style command.
+end note
+
+@enduml

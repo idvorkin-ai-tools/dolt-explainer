@@ -1,0 +1,27 @@
+@startuml sqlite-in-git-fail
+title SQLite-in-git: git treats the DB as a binary blob
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+    RoundCorner 6
+}
+
+rectangle "Agent A\nbd create 'X'\ncommit db.sqlite" as A #D9EDFF
+rectangle "Agent B\nbd create 'Y'\ncommit db.sqlite" as B #D9EDFF
+
+rectangle "git merge A + B\n\nCONFLICT (binary)\n- take A: lose B's task\n- take B: lose A's task\n- merge: impossible" as M #F5C2C7
+
+A -down-> M
+B -down-> M
+
+note bottom of M
+  git stores the whole .sqlite file each commit.
+  A meaningful diff at the row level does not exist.
+  Two concurrent writers = manual recovery every time.
+end note
+
+@enduml

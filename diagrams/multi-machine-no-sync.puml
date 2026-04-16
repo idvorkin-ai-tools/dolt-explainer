@@ -1,0 +1,25 @@
+@startuml multi-machine-no-sync
+title Without sync: each machine holds its own truth
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+    RoundCorner 6
+}
+
+rectangle "🖥️  Laptop\n.beads/\n  bd-101 open\n  bd-102 done\n  bd-103 in_progress" as L #D9EDFF
+rectangle "🖥️  Dev VM\n.beads/\n  bd-101 open\n  bd-104 open\n  bd-105 in_progress" as V #D9EDFF
+rectangle "🖥️  Cron box\n.beads/\n  bd-101 open\n  bd-106 blocked" as C #D9EDFF
+
+L -right[#C92A2A,thickness=2]-> V : no sync\ndiverged\n
+V -right[#C92A2A,thickness=2]-> C : no sync\ndiverged
+
+note bottom
+  Three different views. Laptop agent does not see VM's bd-104.
+  VM closes a task; cron keeps working on it. No shared truth.
+end note
+
+@enduml
