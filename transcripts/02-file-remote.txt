@@ -1,0 +1,52 @@
+
+================================================================
+  SCENARIO 2 — one remote, two clones (file:// transport)
+================================================================
+
+---- Create the 'remote' — a dolt remote is actually a directory of chunks ----
+(the remote is just /home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store — no server, just a filesystem path)
+
+---- Clone A: initialize, seed, add the file:// remote ----
+$ dolt remote add origin file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
+$ dolt remote -v
+origin file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store 
+
+---- Push from Clone A — this materializes chunk files under /home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store ----
+$ dolt push -u origin main
+- Uploading...- Uploading...\ Uploading...To file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
+ * [new branch]          main -> main
+branch 'main' set up to track 'origin/main'.
+              
+---- What does the remote look like on disk? ----
+$ ls /home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
+LOCK
+f6e5h3uepjajeqrccor8119h5jrsqnsj
+manifest
+oldgen
+rges5a59b9cde5nldmhadbo2odubiu3g.darc
+
+---- Clone B: pull the whole database from file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store ----
+$ dolt clone file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store /home/developer/gits/dolt-explainer/runs/02-file-remote/cloneB
+cloning file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
+Retrieving remote information.
+[1A[J0 of 9 chunks complete. 0 chunks being downloaded currently.
+[1A[J0 of 9 chunks complete. 7 chunks being downloaded currently.
+[1A[J0 of 9 chunks complete. 9 chunks being downloaded currently.
+[1A[J7 of 9 chunks complete. 2 chunks being downloaded currently.
+[1A[J9 of 9 chunks complete. 0 chunks being downloaded currently.
+[1A[J9 of 9 chunks complete.
+
+---- Verify Clone B sees the same table ----
+$ (cd /home/developer/gits/dolt-explainer/runs/02-file-remote/cloneB && dolt sql -q "SELECT * FROM items;")
++----+--------+-----+
+| id | name   | qty |
++----+--------+-----+
+| 1  | apple  | 3   |
+| 2  | bread  | 1   |
+| 3  | cheese | 2   |
++----+--------+-----+
+
+
+=> Remote:  /home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
+=> Clone A: /home/developer/gits/dolt-explainer/runs/02-file-remote/cloneA
+=> Clone B: /home/developer/gits/dolt-explainer/runs/02-file-remote/cloneB

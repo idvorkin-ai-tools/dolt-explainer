@@ -1,0 +1,87 @@
+
+================================================================
+  SCENARIO 4 — concurrent inserts on DIFFERENT rows → clean three-way merge
+================================================================
+- Uploading...\ Uploading...              
+---- Clone A adds row id=10; commits locally; does NOT push yet ----
+(A has its own commit; remote unchanged)
+
+---- Clone B adds row id=20; commits; pushes first — wins the race ----
+$ dolt sql -q INSERT INTO items VALUES (20,'banana',4);
+$ dolt add items
+$ dolt commit -m B: add banana
+commit sgkambvqt22cjlk8rq23knplgke40ekq (HEAD -> main) 
+Author: Igor Dvorkin <idvorkin@gmail.com>
+Date:  Thu Apr 16 16:33:53 +0000 2026
+
+	B: add banana
+
+$ dolt push origin main
+- Uploading...- Uploading...To file:///home/developer/gits/dolt-explainer/runs/04-clean-merge/remote-store
+ * [new branch]          main -> main
+              
+---- Now A tries to push — rejected as non-fast-forward ----
+- Uploading...To file:///home/developer/gits/dolt-explainer/runs/04-clean-merge/remote-store
+ ! [rejected]            main -> main (non-fast-forward)
+error: failed to push some refs to 'file:///home/developer/gits/dolt-explainer/runs/04-clean-merge/remote-store'
+hint: Updates were rejected because the tip of your current branch is behind
+hint: its remote counterpart. Integrate the remote changes (e.g.
+hint: 'dolt pull ...') before pushing again.
+
+              
+---- A pulls — dolt runs a three-way merge because the inserts don't overlap ----
+$ dolt pull origin main
+- Pulling...Updating 5a3q5mp3t34dstn37gehmquppudagcqm..sgkambvqt22cjlk8rq23knplgke40ekq
+commit uol31u2ab9i9ge2qbdnf665q8fek3ljm (HEAD -> main) 
+Merge: 5a3q5mp3t34dstn37gehmquppudagcqm sgkambvqt22cjlk8rq23knplgke40ekq
+Author: root <root@localhost>
+Date:  Thu Apr 16 16:33:54 +0000 2026
+
+	Merge branch 'main' of file:///home/developer/gits/dolt-explainer/runs/04-clean-merge/remote-store into main
+
+items | 1 -
+1 tables changed, 0 rows added(+), 0 rows modified(*), 1 rows deleted(-)
+            
+---- A's table now has both new rows AND the original three ----
+$ (cd /home/developer/gits/dolt-explainer/runs/04-clean-merge/cloneA && dolt sql -q "SELECT * FROM items ORDER BY id;")
++----+---------+-----+
+| id | name    | qty |
++----+---------+-----+
+| 1  | apple   | 3   |
+| 2  | bread   | 1   |
+| 3  | cheese  | 2   |
+| 10 | apricot | 7   |
+| 20 | banana  | 4   |
++----+---------+-----+
+
+
+---- A's history has a merge commit joining its branch and origin/main ----
+$ dolt log --oneline --graph -n 6
+* commit uol31u2ab9i9ge2qbdnf665q8fek3ljm (HEAD -> main) Merge branch 'main' of file:///home/developer/gits/dolt-explainer/runs/04-clean-merge/remote-store into main
+|\
+| * commit sgkambvqt22cjlk8rq23knplgke40ekq  (remotes/origin/main) B: add banana
+*/ commit 5a3q5mp3t34dstn37gehmquppudagcqm  A: add apricot
+* commit tvqs28mlhnftg9mc1kc50bd7nd71tkg0  seed items
+* commit 8qfmv2ttb082o2654t7hami6so3g5k35  Initialize data repository
+
+---- A pushes the merge; B pulls — both converge ----
+$ dolt push origin main
+- Uploading...- Uploading...To file:///home/developer/gits/dolt-explainer/runs/04-clean-merge/remote-store
+ * [new branch]          main -> main
+              $ dolt pull origin main
+- Pulling...Fast-forward
+Updating sgkambvqt22cjlk8rq23knplgke40ekq..uol31u2ab9i9ge2qbdnf665q8fek3ljm
+Everything up-to-date
+            $ (cd /home/developer/gits/dolt-explainer/runs/04-clean-merge/cloneB && dolt sql -q "SELECT * FROM items ORDER BY id;")
++----+---------+-----+
+| id | name    | qty |
++----+---------+-----+
+| 1  | apple   | 3   |
+| 2  | bread   | 1   |
+| 3  | cheese  | 2   |
+| 10 | apricot | 7   |
+| 20 | banana  | 4   |
++----+---------+-----+
+
+
+=> Merge resolved without human input. Run tree: /home/developer/gits/dolt-explainer/runs/04-clean-merge

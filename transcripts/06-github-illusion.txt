@@ -1,0 +1,77 @@
+
+================================================================
+  SCENARIO 6 — the 'empty GitHub repo' illusion (offline, bare-git)
+================================================================
+
+---- Create a bare git repo — this stands in for github.com/owner/repo.git ----
+$ git init --bare --initial-branch=main /home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git
+Initialized empty Git repository in /home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git/
+
+---- Dolt REQUIRES at least one git commit on the remote before it will push. ----
+
+---- Seed the 'GitHub' repo with a README (exactly what 'gh repo create --add-readme' does) ----
+warning: You appear to have cloned an empty repository.
+done.
+To /home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git
+ * [new branch]      main -> main
+(fake-github now has a single commit holding README.md)
+
+---- Build a dolt repo with our items table ----
+
+---- Point dolt at the bare git repo. The .git suffix triggers dolt's git-mode. ----
+$ dolt remote add origin file:///home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git
+$ dolt remote -v
+origin git+file:///home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git 
+
+---- Push the dolt database through git ----
+ * [new branch]          main -> main
+branch 'main' set up to track 'origin/main'.
+              
+---- ===== THE ILLUSION ===== ----
+
+---- What 'GitHub UI' would show — only refs/heads/* counts for the file browser ----
+$ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git log --oneline refs/heads/main
+65d1794 initial
+
+$ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git ls-tree refs/heads/main
+100644 blob 3050d4dd57345f2f3b263f0e17751f0675ce87b5	README.md
+(GitHub users see: ONE file, README.md — the repo looks 'empty')
+
+---- But 'git ls-remote' (and GitHub's API) reveals the hidden ref ----
+$ git ls-remote /home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git
+65d17949bda1c74813d67f9d1c3dbdafc2a6df96	HEAD
+2b29cbafad8eef40a02846676c11f56218fb933b	refs/dolt/data
+65d17949bda1c74813d67f9d1c3dbdafc2a6df96	refs/heads/main
+(there it is — refs/dolt/data, same SHA family that dolt pushed)
+
+---- Peek inside refs/dolt/data — it's a commit whose tree is dolt's chunk store ----
+$ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git ls-tree 2b29cbafad8eef40a02846676c11f56218fb933b
+100644 blob 4a29b9f9593731f8c6155bc401cb3f3a424e1fb4	l5kb6p6in27ni1tkq2glalblsuoe28ds
+100644 blob e9614ef3df9d5e6e514cf37624ed4d263bcc9ec2	manifest
+100644 blob 3ed4398bb24f888eb1b4cbcf883130c6378b26e9	q5ctt21933663h8754r8f8pm0mq783mc.darc
+(manifest + .darc archive + content-addressed Noms chunks — opaque to git)
+
+---- ===== PROVING IT ROUND-TRIPS ===== ----
+
+---- Clone the bare-git URL with DOLT — it fetches refs/dolt/data and rebuilds the DB ----
+[1A[J7 of 9 chunks complete. 2 chunks being downloaded currently.
+[1A[J9 of 9 chunks complete. 0 chunks being downloaded currently.
+[1A[J9 of 9 chunks complete.
+$ (cd /home/developer/gits/dolt-explainer/runs/06-github-illusion/dolt-restored && dolt sql -q "SELECT * FROM items;")
++----+--------+-----+
+| id | name   | qty |
++----+--------+-----+
+| 1  | apple  | 3   |
+| 2  | bread  | 1   |
+| 3  | cheese | 2   |
++----+--------+-----+
+
+
+---- Contrast: a vanilla 'git clone' fetches only refs/heads/main — README only ----
+Cloning into '/home/developer/gits/dolt-explainer/runs/06-github-illusion/vanilla-git-clone'...
+done.
+$ ls /home/developer/gits/dolt-explainer/runs/06-github-illusion/vanilla-git-clone
+README.md
+
+=> The illusion is real. Run tree: /home/developer/gits/dolt-explainer/runs/06-github-illusion
+=> To see the same thing against the real GitHub repo, run 06b-github-live.sh

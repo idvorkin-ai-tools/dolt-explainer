@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dolt sync explainer — how a SQL database travels through a GitHub repo</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
+  h2 { margin-top: 2.5rem; color: #444; }
+  h3 { margin-top: 1.5rem; color: #555; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: #f4f4f4; padding: .08rem .3rem; border-radius: 3px; font-size: .9em; }
+  pre { background: #1b1b1b; color: #e8e8e8; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .82em; line-height: 1.35; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  .meta { background: #f4f4f4; padding: .8rem 1rem; border-radius: 6px; font-size: .92em; margin: 1rem 0; }
+  .aha { background: #fff8d6; border-left: 4px solid #c0a02e; padding: .8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+  details { margin: .8rem 0; padding: .6rem 1rem; background: #fafafa; border: 1px solid #e4e4e4; border-radius: 6px; }
+  details > summary { cursor: pointer; font-weight: 600; color: #333; padding: .3rem 0; }
+  details[open] { background: #fff; }
+  details[open] > summary { margin-bottom: .6rem; border-bottom: 1px solid #eee; padding-bottom: .4rem; }
+  .scenario-num { display: inline-block; width: 1.7rem; color: #999; font-variant-numeric: tabular-nums; }
+  a { color: #0969da; }
+  hr { border: none; border-top: 1px solid #e4e4e4; margin: 2.5rem 0; }
+  .tldr { background: #eaf3ff; border-left: 4px solid #0969da; padding: .8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Dolt sync, explained</h1>
+
+<div class="meta">
+  <strong>What this is:</strong> a walkthrough of how <a href="https://github.com/dolthub/dolt">Dolt</a> — a SQL database that versions like Git — syncs through a remote, with six reproducible shell-script scenarios you can run yourself.<br>
+  <strong>Repo:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer">github.com/idvorkin-ai-tools/dolt-explainer</a> · <strong>Scenarios live in:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer/tree/main/scripts"><code>scripts/</code></a>
+</div>
+
+<div class="tldr">
+  <strong>TL;DR.</strong> Dolt pushes a SQL database through any git remote — including a plain GitHub repo — by writing its chunks to a hidden ref <code>refs/dolt/data</code>. GitHub stores the blobs happily; GitHub's web UI doesn't render them (it only shows <code>refs/heads/*</code>). So a Dolt-backed GitHub repo looks empty in the browser but round-trips a full database via <code>dolt clone</code>.
+</div>
+
+<h2>The illusion</h2>
+<p>Dolt ships with its own remote protocol, but when you point it at a URL ending in <code>.git</code> it switches into <strong>git mode</strong>: it speaks the Git Smart HTTP protocol, uses your ordinary git credential helper, and pushes all its database state to a sibling ref called <code>refs/dolt/data</code>. A Dolt push looks like this on the wire:</p>
+
+<pre><code>$ dolt remote add origin https://github.com/owner/repo.git
+$ dolt remote -v
+origin  git+https://github.com/owner/repo.git
+#       ^^^^ dolt auto-added this prefix
+$ dolt push -u origin main
+</code></pre>
+
+<p>What GitHub stores afterward, asked via <code>git ls-remote</code>:</p>
+
+<pre><code>$ git ls-remote https://github.com/owner/repo.git
+d4cc9f8…  HEAD
+0ede5af…  refs/dolt/data      &lt;- the entire database
+d4cc9f8…  refs/heads/main     &lt;- just the seed README
+</code></pre>
+
+<div class="aha">
+  <strong>Aha.</strong> GitHub's file browser renders only <code>refs/heads/main</code>. If <code>main</code> holds a single README commit, that's all a visitor sees. The chunks on <code>refs/dolt/data</code> are a tree of opaque files — <code>manifest</code>, a <code>.darc</code> archive, and content-addressed Noms chunks — that git stores faithfully but GitHub has no UI for.
+</div>
+
+<p>A vanilla <code>git clone</code> fetches only <code>refs/heads/*</code> and gets the README. A <code>dolt clone</code> fetches <code>refs/dolt/data</code> and rebuilds the database. Same URL, two realities.</p>
+
+<p><strong>Want to see it on the real GitHub?</strong> The reference repo <a href="https://github.com/idvorkin-ai-tools/dolt-sync-test">idvorkin-ai-tools/dolt-sync-test</a> is kept as a permanent demo — look at the file browser (empty-ish), then <code>git ls-remote</code> the URL and spot the hidden ref.</p>
+
+<h2>Conflicts are SQL rows</h2>
+<p>When two clones edit the same row, Dolt materializes the conflict as actual rows in a table called <code>dolt_conflicts_&lt;your_table&gt;</code>, with <code>base_*</code> / <code>our_*</code> / <code>their_*</code> columns. You resolve by querying and committing:</p>
+
+<pre><code>$ dolt sql -q 'SELECT * FROM dolt_conflicts_items;'
+$ dolt conflicts resolve --theirs items    # or --ours, or write SQL
+$ dolt commit -am 'merge: keep their value'</code></pre>
+
+<p>That's arguably the biggest conceptual upgrade from git: conflict resolution becomes a database operation rather than a text-file merge.</p>
+
+<hr>
+
+<h2>Scenarios</h2>
+<p>Six reproducible shell scripts. Each wipes its own run directory, sets up fresh state, and leaves artifacts for you to poke at. <code>./scripts/run-all.sh</code> runs them end-to-end in ~20 seconds, offline.</p>
+
+<details id="s1">
+  <summary><span class="scenario-num">1.</span> Bootstrap — <em>init, table, commit, log, query</em></summary>
+  <p>Dolt's basic &ldquo;git for tables&rdquo; loop. Init a database, create a schema, insert rows, stage and commit. <code>dolt log</code> and <code>dolt status</code> behave like their git counterparts; the data is stored in Dolt's own chunk format, not as SQL text.</p>
+  <pre><code id="t1">Loading…</code></pre>
+</details>
+
+<details id="s2">
+  <summary><span class="scenario-num">2.</span> File remote — <em>push → <code>file://</code> → clone into a second dir</em></summary>
+  <p>A Dolt remote is a directory of content-addressed chunks. <code>dolt push</code> materializes them on disk; <code>dolt clone</code> pulls them into a new working copy. No server required.</p>
+  <pre><code id="t2">Loading…</code></pre>
+</details>
+
+<details id="s3">
+  <summary><span class="scenario-num">3.</span> Round-trip — <em>edit in B, pull in A</em></summary>
+  <p>Clone B adds a row and pushes. Clone A pulls and sees the row. History preserves B's author/message on A's side — same as git.</p>
+  <pre><code id="t3">Loading…</code></pre>
+</details>
+
+<details id="s4">
+  <summary><span class="scenario-num">4.</span> Clean merge — <em>concurrent inserts on <strong>different</strong> rows</em></summary>
+  <p>A and B each insert a different row. First push wins; second hits non-fast-forward. <code>dolt pull</code> runs a three-way merge with no human input — the result has a merge commit and both rows.</p>
+  <pre><code id="t4">Loading…</code></pre>
+</details>
+
+<details id="s5">
+  <summary><span class="scenario-num">5.</span> Conflict — <em>concurrent edits to the <strong>same</strong> row</em></summary>
+  <p>Merge stops. The conflict is stored as a row in <code>dolt_conflicts_items</code> with <code>base_*</code> / <code>our_*</code> / <code>their_*</code> columns. Resolve with <code>dolt conflicts resolve --theirs</code> (or write SQL), commit the merge, push.</p>
+  <pre><code id="t5">Loading…</code></pre>
+</details>
+
+<details id="s6" open>
+  <summary><span class="scenario-num">6.</span> GitHub illusion — <em>bare git as fake GitHub</em></summary>
+  <p>Push a Dolt database to a bare git repo (stand-in for GitHub). <code>git log refs/heads/main</code> shows only the seed README (what the web UI would render). <code>git ls-remote</code> reveals the hidden <code>refs/dolt/data</code>. <code>dolt clone</code> fetches it and rebuilds the database. A vanilla <code>git clone</code> gets only the README.</p>
+  <pre><code id="t6">Loading…</code></pre>
+</details>
+
+<hr>
+
+<h2>Research notes</h2>
+<ul>
+  <li><a href="docs/research/findings.md">findings.md</a> — the full writeup from the research session that preceded this explainer</li>
+  <li><a href="docs/research/mental-model.md">mental-model.md</a> — a git-user's cheat sheet for Dolt remotes</li>
+  <li><a href="docs/research/archetype-recommendation.md">archetype-recommendation.md</a> — why timeline-explorer would be the next iteration if this static page stops being enough</li>
+  <li><a href="docs/research/GITHUB-DEMO-REPO.md">GITHUB-DEMO-REPO.md</a> — notes on the preserved live-GitHub reference repo</li>
+</ul>
+
+<h2>Running the scenarios yourself</h2>
+<pre><code>git clone https://github.com/idvorkin-ai-tools/dolt-explainer.git
+cd dolt-explainer
+brew install dolt                    # or the user-local installer
+./scripts/run-all.sh                 # ~20 s, offline, writes to runs/
+./scripts/run-all.sh --live          # also run 06b against real GitHub (needs gh auth)</code></pre>
+
+<script>
+// Fetch the six transcripts and inject them into their <pre><code> blocks.
+// Done in-page so the HTML is small and the transcripts stay authoritative
+// (edit the scripts, re-run, commit — the page updates automatically).
+const TRANSCRIPTS = [
+  {id: 't1', src: 'transcripts/01-bootstrap.txt'},
+  {id: 't2', src: 'transcripts/02-file-remote.txt'},
+  {id: 't3', src: 'transcripts/03-roundtrip.txt'},
+  {id: 't4', src: 'transcripts/04-clean-merge.txt'},
+  {id: 't5', src: 'transcripts/05-conflict.txt'},
+  {id: 't6', src: 'transcripts/06-github-illusion.txt'},
+];
+for (const {id, src} of TRANSCRIPTS) {
+  fetch(src)
+    .then(r => r.ok ? r.text() : Promise.reject(r.status))
+    .then(text => { document.getElementById(id).textContent = text; })
+    .catch(err => { document.getElementById(id).textContent = '(failed to load ' + src + ': ' + err + ')'; });
+}
+</script>
+
+</body>
+</html>

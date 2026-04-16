@@ -1,0 +1,69 @@
+
+================================================================
+  SCENARIO 3 — edit in B, pull in A (round-trip through remote)
+================================================================
+- Uploading...\ Uploading...              
+---- Baseline: both clones see 3 rows ----
+$ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneA && dolt sql -q "SELECT COUNT(*) FROM items;")
++----------+
+| COUNT(*) |
++----------+
+| 3        |
++----------+
+
+$ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneB && dolt sql -q "SELECT COUNT(*) FROM items;")
++----------+
+| COUNT(*) |
++----------+
+| 3        |
++----------+
+
+
+---- In Clone B: insert a new row, commit, push ----
+$ dolt sql -q INSERT INTO items VALUES (4,'dates',5);
+$ dolt add items
+$ dolt commit -m add dates
+commit m1sfv9vdqmkbnrobpraatlnutigv4iq8 (HEAD -> main) 
+Author: Igor Dvorkin <idvorkin@gmail.com>
+Date:  Thu Apr 16 16:33:50 +0000 2026
+
+	add dates
+
+$ dolt push origin main
+- Uploading...- Uploading...To file:///home/developer/gits/dolt-explainer/runs/03-roundtrip/remote-store
+ * [new branch]          main -> main
+              
+---- In Clone A: still 3 rows (hasn't pulled yet) ----
+$ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneA && dolt sql -q "SELECT COUNT(*) FROM items;")
++----------+
+| COUNT(*) |
++----------+
+| 3        |
++----------+
+
+
+---- In Clone A: pull — change arrives via the shared remote ----
+$ dolt pull origin main
+- Pulling...- Pulling...Fast-forward
+Updating k17etduigke8jl861ptdouhlqe8enrhp..m1sfv9vdqmkbnrobpraatlnutigv4iq8
+Everything up-to-date
+            
+---- Now Clone A sees 4 rows, including the row added in Clone B ----
+$ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneA && dolt sql -q "SELECT * FROM items;")
++----+--------+-----+
+| id | name   | qty |
++----+--------+-----+
+| 1  | apple  | 3   |
+| 2  | bread  | 1   |
+| 3  | cheese | 2   |
+| 4  | dates  | 5   |
++----+--------+-----+
+
+
+---- dolt log in A shows Clone B's commit — with the SAME author metadata as on B ----
+$ dolt log --oneline -n 3
+m1sfv9vdqmkbnrobpraatlnutigv4iq8 (HEAD -> main, remotes/origin/main) add dates
+k17etduigke8jl861ptdouhlqe8enrhp seed items
+ff9fgbubcchooc95cb96k9196uuufs36 Initialize data repository
+
+=> Round-trip complete. Run tree: /home/developer/gits/dolt-explainer/runs/03-roundtrip

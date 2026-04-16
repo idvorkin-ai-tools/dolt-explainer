@@ -1,0 +1,111 @@
+
+================================================================
+  SCENARIO 5 — concurrent edits to the SAME row → cell-level conflict
+================================================================
+- Uploading...              
+---- Both clones see row 1: apple qty=3 ----
+$ (cd /home/developer/gits/dolt-explainer/runs/05-conflict/cloneA && dolt sql -q "SELECT * FROM items WHERE id=1;")
++----+-------+-----+
+| id | name  | qty |
++----+-------+-----+
+| 1  | apple | 3   |
++----+-------+-----+
+
+
+---- Clone A changes qty for apple to 99 (commits, does not push yet) ----
+
+---- Clone B changes qty for apple to 50; pushes first ----
+$ dolt sql -q UPDATE items SET qty=50 WHERE id=1;
+$ dolt add items
+$ dolt commit -m B: bump apple to 50
+commit rq1tjsrrt4bpp4g3og7uhdrarkn261c2 (HEAD -> main) 
+Author: Igor Dvorkin <idvorkin@gmail.com>
+Date:  Thu Apr 16 16:33:57 +0000 2026
+
+	B: bump apple to 50
+
+$ dolt push origin main
+- Uploading...- Uploading...To file:///home/developer/gits/dolt-explainer/runs/05-conflict/remote-store
+ * [new branch]          main -> main
+              
+---- A pulls — merge stops, conflicts reported ----
+- Pulling...- Pulling...Updating g7c81r9csc9059bppg47gvg5klsa5ua1..rq1tjsrrt4bpp4g3og7uhdrarkn261c2
+Auto-merging items
+CONFLICT (content): Merge conflict in items
+Automatic merge failed; 1 table(s) are unmerged.
+Use 'dolt conflicts' to investigate and resolve conflicts.
+            
+---- Conflict is stored as a QUERYABLE SQL TABLE — dolt_conflicts_items ----
+$ (cd /home/developer/gits/dolt-explainer/runs/05-conflict/cloneA && dolt sql -q "SELECT * FROM dolt_conflicts_items;")
++----------------------------------+---------+-----------+----------+--------+----------+---------+---------------+----------+------------+-----------+-----------------+------------------------+
+| from_root_ish                    | base_id | base_name | base_qty | our_id | our_name | our_qty | our_diff_type | their_id | their_name | their_qty | their_diff_type | dolt_conflict_id       |
++----------------------------------+---------+-----------+----------+--------+----------+---------+---------------+----------+------------+-----------+-----------------+------------------------+
+| rq1tjsrrt4bpp4g3og7uhdrarkn261c2 | 1       | apple     | 3        | 1      | apple    | 99      | modified      | 1        | apple      | 50        | modified        | nY38tM2WmlVY7uJE57mo9w |
++----------------------------------+---------+-----------+----------+--------+----------+---------+---------------+----------+------------+-----------+-----------------+------------------------+
+
+
+---- Columns: base_* (common ancestor), our_* (our branch), their_* (incoming) ----
+$ (cd /home/developer/gits/dolt-explainer/runs/05-conflict/cloneA && dolt sql -q "SHOW COLUMNS FROM dolt_conflicts_items;")
++------------------+---------------+------+-----+---------+-------+
+| Field            | Type          | Null | Key | Default | Extra |
++------------------+---------------+------+-----+---------+-------+
+| from_root_ish    | varchar(1023) | YES  |     | NULL    |       |
+| base_id          | int           | YES  |     | NULL    |       |
+| base_name        | varchar(64)   | YES  |     | NULL    |       |
+| base_qty         | int           | YES  |     | NULL    |       |
+| our_id           | int           | NO   |     | NULL    |       |
+| our_name         | varchar(64)   | YES  |     | NULL    |       |
+| our_qty          | int           | YES  |     | NULL    |       |
+| our_diff_type    | varchar(1023) | YES  |     | NULL    |       |
+| their_id         | int           | YES  |     | NULL    |       |
+| their_name       | varchar(64)   | YES  |     | NULL    |       |
+| their_qty        | int           | YES  |     | NULL    |       |
+| their_diff_type  | varchar(1023) | YES  |     | NULL    |       |
+| dolt_conflict_id | varchar(1023) | YES  |     | NULL    |       |
++------------------+---------------+------+-----+---------+-------+
+
+
+---- Resolve — take 'theirs' (use the value from Clone B's push, qty=50) ----
+$ dolt conflicts resolve --theirs items
+
+---- After resolve: items row 1 has qty=50; conflicts table is empty ----
+$ (cd /home/developer/gits/dolt-explainer/runs/05-conflict/cloneA && dolt sql -q "SELECT * FROM items WHERE id=1;")
++----+-------+-----+
+| id | name  | qty |
++----+-------+-----+
+| 1  | apple | 50  |
++----+-------+-----+
+
+$ (cd /home/developer/gits/dolt-explainer/runs/05-conflict/cloneA && dolt sql -q "SELECT COUNT(*) AS remaining_conflicts FROM dolt_conflicts_items;")
++---------------------+
+| remaining_conflicts |
++---------------------+
+| 0                   |
++---------------------+
+
+
+---- Commit the merge and push — both clones now agree ----
+$ dolt commit -am merge: keep B's value
+commit chtek5qjpv1vmebeb69u94o17h52a0qe (HEAD -> main) 
+Merge: g7c81r9csc9059bppg47gvg5klsa5ua1 rq1tjsrrt4bpp4g3og7uhdrarkn261c2
+Author: Demo <demo@example.com>
+Date:  Thu Apr 16 16:33:58 +0000 2026
+
+	merge: keep B's value
+
+$ dolt push origin main
+- Uploading...- Uploading...To file:///home/developer/gits/dolt-explainer/runs/05-conflict/remote-store
+ * [new branch]          main -> main
+              $ dolt pull origin main
+- Pulling...- Pulling...Fast-forward
+Updating rq1tjsrrt4bpp4g3og7uhdrarkn261c2..chtek5qjpv1vmebeb69u94o17h52a0qe
+Everything up-to-date
+            $ (cd /home/developer/gits/dolt-explainer/runs/05-conflict/cloneB && dolt sql -q "SELECT * FROM items WHERE id=1;")
++----+-------+-----+
+| id | name  | qty |
++----+-------+-----+
+| 1  | apple | 50  |
++----+-------+-----+
+
+
+=> Conflict resolved via SQL. Run tree: /home/developer/gits/dolt-explainer/runs/05-conflict
