@@ -30,7 +30,7 @@
 <h1>Dolt sync, explained</h1>
 
 <div class="meta">
-  <strong>What this is:</strong> a walkthrough of how <a href="https://github.com/dolthub/dolt">Dolt</a> — a SQL database that versions like Git — syncs through a remote, with six reproducible shell-script scenarios you can run yourself.<br>
+  <strong>What this is:</strong> a walkthrough of how <a href="https://github.com/dolthub/dolt">Dolt</a> — a SQL database that versions like Git — syncs through a remote, with seven reproducible shell-script scenarios you can run yourself. Driven by a concrete use case: syncing <a href="https://github.com/steveyegge/beads">beads</a>, the task DB, across sessions and machines.<br>
   <strong>Repo:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer">github.com/idvorkin-ai-tools/dolt-explainer</a> · <strong>Scenarios live in:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer/tree/main/scripts"><code>scripts/</code></a>
 </div>
 
@@ -111,6 +111,40 @@ dolt push upstream main       # this push carries refs/dolt/data to upstream</co
 </ul>
 
 <p>Scenario 7 below reproduces all three failure modes locally with two bare git repos standing in for upstream and fork.</p>
+
+<hr>
+
+<h2>Why we use Dolt anyway: beads sync</h2>
+
+<p>The fork/PR model is fit for <em>authored</em> content — prose, code, skills — where a human adds value by reviewing line-level diffs and deciding whether the change lands. But the ai-tools ecosystem also produces <em>operational</em> data: task state written by agents, read by other agents, no human author. Beads (<code>bd</code>) is the canonical example — it stores issues in a Dolt database and syncs with <code>bd dolt push</code> / <code>bd dolt pull</code>. Every session on every machine writes to it; every session reads from it.</p>
+
+<p><img src="diagrams/beads-multi-writer.svg" alt="Multiple sessions on different machines each push and pull to a single ai-tools-owned dolt repo. No upstream, no PR review. Concurrent writes merge row-by-row; same-row conflicts resolve via dolt_conflicts_* tables." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
+<p>The pattern: <strong>one Dolt-backed repo under <code>idvorkin-ai-tools/</code>, no upstream, every agent pushes and pulls directly.</strong> That inverts the blog-code workflow deliberately, and it's the inversion the fork-hole analysis above pushes you toward.</p>
+
+<h3>Why this model fits task data (and wouldn't fit a blog post)</h3>
+
+<table style="border-collapse:collapse;width:100%;margin:1rem 0;font-size:.92em;">
+<thead style="background:#f4f4f4;">
+<tr><th style="text-align:left;padding:.5rem .7rem;border-bottom:1px solid #ddd;">Blog code (authored, upstream + fork)</th><th style="text-align:left;padding:.5rem .7rem;border-bottom:1px solid #ddd;">Beads data (operational, ai-tools only)</th></tr>
+</thead>
+<tbody>
+<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Prose and code — needs human review</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Task state — written by agents, not authored</td></tr>
+<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Line-level diffs a human reads on GitHub</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Row-level diffs nobody is going to review on a PR ("bd-123 in_progress → completed")</td></tr>
+<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">One writer at a time via PR merges</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Many concurrent writers — every session on every machine</td></tr>
+<tr><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Conflicts are rare and human-resolved</td><td style="padding:.45rem .7rem;border-bottom:1px solid #eee;">Conflicts would be constant if serialized through PRs — Dolt's row-level three-way merge makes them tolerable without a reviewer</td></tr>
+</tbody>
+</table>
+
+<h3>Why Dolt specifically (not SQLite-in-git, not Postgres)</h3>
+<ol>
+  <li><strong>Mergeable by rows, not bytes.</strong> A SQLite file in git is an unmergeable binary blob — two sessions writing at once = immediate conflict mess. Dolt merges at the row level (see scenario 4), so concurrent agents almost always merge clean.</li>
+  <li><strong>No server, no credentials.</strong> Just GitHub as a dumb chunk store. <code>bd dolt push</code> is <code>git push</code> with a SQL database onboard. No RDS, no Postgres instance, no secret rotation.</li>
+  <li><strong>Audit trail for free.</strong> <code>dolt log</code> + <code>dolt diff</code> give per-row history. Which session closed bd-123? When? From what state? Answerable.</li>
+  <li><strong>Offline-first.</strong> Sessions commit locally; push when online. Network blips don't break agents mid-write.</li>
+</ol>
+
+<p><strong>The trade accepted:</strong> no human PR review of beads changes. Task state isn't authored content, so that's fine. Anything that IS authored — blog posts, skills, code — stays on the git + fork + PR model.</p>
 
 <hr>
 

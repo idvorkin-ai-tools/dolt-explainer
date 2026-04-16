@@ -1,0 +1,39 @@
+@startuml beads-multi-writer
+title Why we use this: beads (task DB) synced across sessions
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+    RoundCorner 8
+}
+skinparam cloud {
+    BackgroundColor #FFF8D6
+    BorderColor #C0A02E
+}
+
+cloud "idvorkin-ai-tools/<project>\n(the only remote)" as STORE {
+    rectangle "refs/dolt/data\nshared issue database" as REF #C4E2AC
+}
+
+node "Session A\n(macbook, terminal 1)\nbd close bd-42" as A #EAF3FF
+node "Session B\n(dev VM, terminal 2)\nbd create 'review PR'" as B #EAF3FF
+node "Session C\n(laptop, offline → online)\nbd update bd-17 status" as C #EAF3FF
+
+A -[#0969DA]-> REF : bd dolt push
+B -[#0969DA]-> REF : bd dolt push
+C -[#0969DA]-> REF : bd dolt push
+REF -[#0969DA,dashed]-> A : bd dolt pull
+REF -[#0969DA,dashed]-> B : bd dolt pull
+REF -[#0969DA,dashed]-> C : bd dolt pull
+
+note bottom of STORE
+  No upstream/canonical copy. No PR review.
+  The ai-tools repo IS the authoritative store.
+  Concurrent writes merge row-by-row automatically;
+  rare same-row conflicts resolve via dolt_conflicts_*.
+end note
+
+@enduml
