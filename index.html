@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Beads + Git sync — how a task DB and a code repo share one fork</title>
+<title>Beads + Git sync — why task state needs Dolt to travel alongside code</title>
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.5; }
   h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
@@ -34,46 +34,87 @@
 <h1>Beads + Git sync in one fork repo</h1>
 
 <div class="meta">
-  <strong>The problem:</strong> agents on multiple machines need to share task state (beads) in near-real-time, while the underlying blog is on the idvorkin / idvorkin-ai-tools fork workflow for code. Two data classes, one repo, different cadences.<br>
-  <strong>The trick:</strong> Dolt pushes the task DB to a sibling ref (<code>refs/dolt/data</code>) on the same GitHub repo that holds code on <code>refs/heads/main</code>. Git and Dolt never collide because they write disjoint refs.<br>
+  <strong>What this is:</strong> a step-by-step explanation of why <a href="https://github.com/steveyegge/beads">beads</a> (AI-native task tracking) needs to sync across machines, why that sync has to travel alongside code in git, why git alone can't carry it, and why Dolt — specifically Dolt writing to <code>refs/dolt/data</code> on the same GitHub repo — is the piece that makes it work. Then: where this breaks on GitHub's fork+PR workflow, and why that's intentional.<br>
   <strong>Repo:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer">github.com/idvorkin-ai-tools/dolt-explainer</a> · <strong>Scenarios:</strong> <a href="https://github.com/idvorkin-ai-tools/dolt-explainer/tree/main/scripts"><code>scripts/</code></a>
 </div>
 
 <div class="tldr">
-  <strong>TL;DR.</strong> <code>idvorkin-ai-tools/&lt;repo&gt;.git</code> carries two refs: <code>refs/heads/main</code> for code (flows through PR to <code>idvorkin/&lt;repo&gt;</code>) and <code>refs/dolt/data</code> for the beads task database (fork-only, many writers, merged row-by-row). The daily ritual <code>git pull --rebase &amp;&amp; bd dolt push &amp;&amp; git push</code> is exactly this dual-ref choreography.
+  <strong>TL;DR.</strong> Beads stores task state in a SQL database that lives in your repo under <code>.beads/</code>. Multiple agents on multiple machines all write to that DB. To stay in sync they need a shared store — and for tasks to travel alongside code, that store has to live in the same GitHub repo as the code. Git alone can't do this (SQLite is an unmergeable binary blob). Dolt can: it writes its chunks to a sibling ref <code>refs/dolt/data</code> on the same repo, so code on <code>refs/heads/main</code> and tasks on <code>refs/dolt/data</code> share a fork without colliding. The daily ritual <code>git pull --rebase &amp;&amp; bd dolt push &amp;&amp; git push</code> is exactly this dual-ref choreography.
 </div>
 
-<h2>The problem we're solving</h2>
+<h2>What is beads?</h2>
 
-<div class="problem">
-  <strong>Constraints.</strong>
-  <ul style="margin:.3rem 0;">
-    <li>Agents create, close, and mutate beads issues <strong>constantly</strong> — every session, on whatever machine. Task state must visibly sync within minutes.</li>
-    <li>The blog has an <strong>authoritative upstream</strong> (<code>idvorkin/idvorkin.github.io</code>) that only a human updates via reviewed PRs from a fork (<code>idvorkin-ai-tools/idvorkin.github.io</code>).</li>
-    <li>We don't want a second repo for beads. Tasks belong with the code they reference — searchable together, clonable together.</li>
-    <li>Beads issues aren't authored prose. No human is going to review a PR that says "bd-123 status: in_progress → completed." They're operational state, not content.</li>
-  </ul>
-</div>
+<p><a href="https://github.com/steveyegge/beads">Beads</a> (<code>bd</code>) is an AI-native task tracker. No web UI, no hosted service — everything is CLI, and the DB lives inside your repo under <code>.beads/</code>. Agents use it the way a human uses Jira or Linear, except the vocabulary is command-line:</p>
 
-<p>Put all four together and you get a constraint that forces the design: <strong>task state must flow freely between agents without a PR review step, while code must keep flowing through PR review, and both must live in the same repo.</strong></p>
+<pre><code>$ bd create "Fix broken anchor in activation.md"
+Created bd-287
 
-<p>That's what the <code>refs/dolt/data</code> trick enables. Dolt pushes its database to a private ref on the same git repo that GitHub uses for code. GitHub's web UI (and <code>git clone</code>) only renders <code>refs/heads/*</code>, so the task DB is invisible to human workflows like PR review — exactly what we want — but every agent with a clone can <code>bd dolt push/pull</code> to stay in sync.</p>
+$ bd list --status open
+bd-123  in_progress  add conflict scenario to dolt-explainer
+bd-287  open         fix broken anchor in activation.md
 
-<h2>One repo, two refs, two workflows</h2>
+$ bd close bd-287
+Closed bd-287</code></pre>
+
+<p>Why agents need their own task tracker: they plan, branch off, get interrupted, resume later, hand off to another session. A persistent list of open work — with status, dependencies, references to code — is how they keep their own tail straight. Think of it as <em>agent memory for unfinished business</em>.</p>
+
+<h2>Why does beads need sync?</h2>
+
+<p>If only one agent on one machine ever touched the DB, there'd be no problem — SQLite in <code>.beads/db.sqlite</code> would suffice. But real use isn't that shape:</p>
+
+<ul>
+  <li>The same agent runs on <strong>multiple machines</strong> (laptop, dev VM, the one in the spare room). Issues created on the VM need to show up when you <code>bd list</code> from the laptop.</li>
+  <li>Multiple agents run in <strong>parallel sessions</strong> on the same machine. Session A claims <code>bd-42</code>; session B must not claim it too.</li>
+  <li>Background agents (cron, scheduled tasks, CI) open and close issues while you're asleep. In the morning you want to see what they did.</li>
+  <li>When you <code>git clone</code> a fresh working copy, you want the task state to come along — otherwise the agent starts on a blank slate and re-opens work that was already done.</li>
+</ul>
+
+<p>This is a classic multi-writer sync problem: keep a DB coherent across devices and sessions.</p>
+
+<h2>Why does that sync need to travel with git?</h2>
+
+<p>You could imagine solving it with a hosted service (DoltHub, a Postgres, a Linear project). Why not?</p>
+
+<ul>
+  <li><strong>Tasks reference code, and vice versa.</strong> <code>bd-123</code> says "the bug is in <code>_d/activation.md:L42</code>." When that line moves or the file is renamed, you want the task history to travel with the code history — same commit graph, same clone, same branch checkout.</li>
+  <li><strong><code>git clone</code> should be enough to onboard a new machine.</strong> One command, one URL, one auth setup. Two separate URLs for code and for tasks is two places to forget, two permission models to keep aligned, two stores to back up.</li>
+  <li><strong>Tasks belong in the repo, not outside it.</strong> Beads' core design choice is "issue tracking that lives in your codebase." A hosted service breaks that.</li>
+  <li><strong>No uptime dependency.</strong> A hosted DB means a service we have to run. GitHub is already running.</li>
+</ul>
+
+<p>So the requirement tightens: the beads DB must sync <strong>through the same GitHub repo as the code</strong>, using the same git credential flow, travelling with the same commits.</p>
+
+<h2>Why git alone can't carry it</h2>
+
+<p>The obvious thing to try is committing the DB file into the repo — <code>git add .beads/db.sqlite</code>. It doesn't work:</p>
+
+<ul>
+  <li>SQLite is a <strong>binary blob</strong>. Git stores the whole file every commit, not a delta. Two agents writing concurrently produce a <strong>merge conflict git can't resolve</strong> — you'd have to pick one DB and throw the other's writes away.</li>
+  <li>Diffs are meaningless. "128 bytes changed at offset 0x40c0" tells you nothing about which task moved from <code>open</code> to <code>in_progress</code>.</li>
+  <li>History is opaque. Who closed <code>bd-42</code>? When? You can't answer from <code>git log</code> + <code>git blame</code>.</li>
+</ul>
+
+<p>What you want is something with <strong>git's workflow semantics</strong> — clone, branch, commit, push, pull, merge — but which understands <strong>rows</strong>, not bytes. That's exactly what Dolt is.</p>
+
+<h2>The answer — Dolt on a sibling ref</h2>
+
+<p><a href="https://github.com/dolthub/dolt">Dolt</a> is "git for tables." It keeps its database in a content-addressed chunk store, presents a <code>dolt log</code> / <code>dolt diff</code> / <code>dolt merge</code> interface, and — this is the part that solves our problem — when you point it at a URL ending in <code>.git</code> it speaks plain git Smart HTTP and writes its chunks to a separate ref, <strong><code>refs/dolt/data</code></strong>, on the same GitHub repo as your code.</p>
 
 <p><img src="diagrams/dual-sync.svg" alt="Dual-sync topology: one ai-tools fork repo carries refs/heads/main (code, flows through PR to upstream) and refs/dolt/data (beads task DB, fork-only, many concurrent writers). No collision because the two workflows write disjoint refs." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
 
-<p>Code and beads cohabit one GitHub repo because they write different refs:</p>
+<p>Two refs, two workflows, one repo. They never collide because they write disjoint refs:</p>
 
 <table>
 <thead>
-<tr><th>Data class</th><th>Ref</th><th>Who writes</th><th>Where it flows</th><th>How it merges</th></tr>
+<tr><th>Data class</th><th>Ref</th><th>Who writes</th><th>How it merges</th></tr>
 </thead>
 <tbody>
-<tr><td>Blog code & prose</td><td><code>refs/heads/main</code>, <code>refs/heads/&lt;branch&gt;</code></td><td>You, via <code>git push</code></td><td>Fork → upstream via PR</td><td>Human review + git merge / rebase</td></tr>
-<tr><td>Beads task DB</td><td><code>refs/dolt/data</code></td><td>Every agent on every machine, via <code>bd dolt push</code></td><td>Fork only — never flows to upstream</td><td>Dolt row-level three-way merge; conflicts become queryable SQL rows</td></tr>
+<tr><td>Blog code & prose</td><td><code>refs/heads/main</code>, <code>refs/heads/&lt;branch&gt;</code></td><td>You, via <code>git push</code></td><td>Human review + git merge / rebase</td></tr>
+<tr><td>Beads task DB</td><td><code>refs/dolt/data</code></td><td>Every agent on every machine, via <code>bd dolt push</code></td><td>Dolt row-level three-way merge</td></tr>
 </tbody>
 </table>
+
+<p><code>bd dolt push</code> is a thin wrapper around <code>dolt push origin main</code>, and <code>dolt push</code> is a thin wrapper around <code>git send-pack</code> over HTTPS. Same repo URL, same auth, different ref. Everything beads needs to sync rides on git infrastructure.</p>
 
 <h2>The daily workflow</h2>
 
