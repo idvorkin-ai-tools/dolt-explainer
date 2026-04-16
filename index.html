@@ -114,6 +114,30 @@ Closed bd-287</code></pre>
 
 <p>What you want is something with <strong>git's workflow semantics</strong> — clone, branch, commit, push, pull, merge, <strong>reset</strong>, <strong>log</strong> — but which understands <strong>rows</strong>, not bytes. Three of those (reset, log, row-level merge) are what enable the rollback/audit story above. That's exactly what Dolt is.</p>
 
+<h2>Quick primer: what's a git ref?</h2>
+
+<p>Before we get to the Dolt trick, worth 30 seconds on refs — because the whole mechanism hangs off one. A <strong>ref</strong> is just a named pointer to a commit SHA, stored under <code>.git/refs/</code>. You already use them every day, you just don't say "ref" out loud:</p>
+
+<p><img src="diagrams/git-refs.svg" alt="Tree showing .git/refs/ with five common namespaces: refs/heads/* (local branches), refs/remotes/<remote>/* (remote-tracking branches), refs/tags/* (tags and releases), refs/pull/<n>/head (GitHub-managed PR refs), and refs/dolt/data (Dolt's custom namespace). Each branch labeled with what normally reads/writes it." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
+<ul>
+  <li><strong><code>refs/heads/main</code></strong> is your local <code>main</code> branch. <code>git checkout main</code> points HEAD at this ref. GitHub's file browser shows whatever tree this ref points to.</li>
+  <li><strong><code>refs/remotes/origin/main</code></strong> is what you've last fetched from <code>origin</code>'s <code>main</code>. <code>git log origin/main</code> walks this.</li>
+  <li><strong><code>refs/tags/v1.0</code></strong> is an immutable tag. <code>git tag v1.0</code> creates it. GitHub's Releases page lists tags.</li>
+  <li><strong><code>refs/pull/&lt;n&gt;/head</code></strong> is a GitHub-managed ref that appears when someone opens PR <code>#n</code>. <code>gh pr checkout &lt;n&gt;</code> reads it. Most tools ignore it.</li>
+</ul>
+
+<p>Critical property: <strong>the refs namespace is extensible.</strong> Any tool can write refs under its own prefix. GitHub does it with <code>refs/pull/*</code>. Gerrit does it with <code>refs/changes/*</code>. And Dolt does it with <code>refs/dolt/data</code>.</p>
+
+<p>Which means the "sibling ref" we keep mentioning is not a hack or an extension point that had to be added — it's just <em>using the namespace git already has</em>. Dolt writes to <code>refs/dolt/data</code> the same way GitHub writes to <code>refs/pull/123/head</code>. Git stores the blobs. Different tools read them.</p>
+
+<p>Also useful to know:</p>
+
+<ul>
+  <li><code>git clone</code> only fetches <code>refs/heads/*</code> and <code>refs/tags/*</code> by default. Everything else (pull refs, dolt data) needs an explicit refspec or a tool like <code>gh</code> / <code>dolt</code> that knows what to ask for.</li>
+  <li><code>git ls-remote &lt;url&gt;</code> lists <em>every</em> ref on a remote, which is how you can tell from the outside whether a repo has dolt data, pull refs, etc. We use this all over the scenarios below.</li>
+</ul>
+
 <h2>The answer — Dolt on a sibling ref</h2>
 
 <p><a href="https://github.com/dolthub/dolt">Dolt</a> is "git for tables." It keeps its database in a content-addressed chunk store, presents a <code>dolt log</code> / <code>dolt diff</code> / <code>dolt merge</code> interface, and — this is the part that solves our problem — when you point it at a URL ending in <code>.git</code> it speaks plain git Smart HTTP and writes its chunks to a separate ref, <strong><code>refs/dolt/data</code></strong>, on the same GitHub repo as your code.</p>

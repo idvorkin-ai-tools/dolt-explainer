@@ -1,0 +1,36 @@
+@startuml git-refs
+title Git refs — named pointers under `.git/refs/`
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+    RoundCorner 6
+}
+
+rectangle ".git/refs/" as ROOT #F4F4F4
+
+rectangle "refs/heads/*\n\nLocal branches.\nmain, feature-X, ...\n\n**Used by:** git log, git checkout,\nGitHub file browser, `git clone`." as HEADS #D9EDFF
+
+rectangle "refs/remotes/<remote>/*\n\nRemote-tracking branches.\norigin/main, upstream/main, ...\n\n**Used by:** git fetch, git pull,\nshown as 'origin/main' in git log." as REMOTES #D9EDFF
+
+rectangle "refs/tags/*\n\nImmutable named commits.\nv1.0, release-2026-04, ...\n\n**Used by:** git tag, git checkout v1.0,\nGitHub Releases page." as TAGS #D9EDFF
+
+rectangle "refs/pull/<n>/head\n\nGitHub-managed PR refs.\nCreated automatically when a PR opens.\n\n**Used by:** `gh pr checkout`,\nhidden from the normal branch list." as PULL #FFF8D6
+
+rectangle "refs/dolt/data\n\n**Dolt's custom namespace.**\nHolds the chunk store of a SQL DB.\n\n**Used by:** dolt push / dolt clone.\nInvisible to GitHub UI and `git clone`." as DOLT #C4E2AC
+
+ROOT -down-> HEADS
+ROOT -down-> REMOTES
+ROOT -down-> TAGS
+ROOT -down-> PULL
+ROOT -down-> DOLT
+
+note bottom
+  Any tool can create refs under a custom prefix.
+  The refs namespace is extensible — that's the whole trick.
+end note
+
+@enduml
