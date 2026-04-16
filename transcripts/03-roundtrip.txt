@@ -2,7 +2,7 @@
 ================================================================
   SCENARIO 3 — edit in B, pull in A (round-trip through remote)
 ================================================================
-- Uploading...\ Uploading...              
+              
 ---- Baseline: both clones see 3 rows ----
 $ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneA && dolt sql -q "SELECT COUNT(*) FROM items;")
 +----------+
@@ -23,14 +23,14 @@ $ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneB && dolt sql -
 $ dolt sql -q INSERT INTO items VALUES (4,'dates',5);
 $ dolt add items
 $ dolt commit -m add dates
-commit m1sfv9vdqmkbnrobpraatlnutigv4iq8 (HEAD -> main) 
+commit t9e7icvd5l4trm6lltlsfop49pjvts9b (HEAD -> main) 
 Author: Igor Dvorkin <idvorkin@gmail.com>
-Date:  Thu Apr 16 16:33:50 +0000 2026
+Date:  Thu Apr 16 17:03:47 +0000 2026
 
 	add dates
 
 $ dolt push origin main
-- Uploading...- Uploading...To file:///home/developer/gits/dolt-explainer/runs/03-roundtrip/remote-store
+- Uploading...To file:///home/developer/gits/dolt-explainer/runs/03-roundtrip/remote-store
  * [new branch]          main -> main
               
 ---- In Clone A: still 3 rows (hasn't pulled yet) ----
@@ -44,8 +44,8 @@ $ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneA && dolt sql -
 
 ---- In Clone A: pull — change arrives via the shared remote ----
 $ dolt pull origin main
-- Pulling...- Pulling...Fast-forward
-Updating k17etduigke8jl861ptdouhlqe8enrhp..m1sfv9vdqmkbnrobpraatlnutigv4iq8
+- Pulling...Fast-forward
+Updating hbjfus6bb7djfibc54o5t234addsgegn..t9e7icvd5l4trm6lltlsfop49pjvts9b
 Everything up-to-date
             
 ---- Now Clone A sees 4 rows, including the row added in Clone B ----
@@ -62,8 +62,8 @@ $ (cd /home/developer/gits/dolt-explainer/runs/03-roundtrip/cloneA && dolt sql -
 
 ---- dolt log in A shows Clone B's commit — with the SAME author metadata as on B ----
 $ dolt log --oneline -n 3
-m1sfv9vdqmkbnrobpraatlnutigv4iq8 (HEAD -> main, remotes/origin/main) add dates
-k17etduigke8jl861ptdouhlqe8enrhp seed items
-ff9fgbubcchooc95cb96k9196uuufs36 Initialize data repository
+t9e7icvd5l4trm6lltlsfop49pjvts9b (HEAD -> main, remotes/origin/main) add dates
+hbjfus6bb7djfibc54o5t234addsgegn seed items
+nr8rs3i0fi0p9s09i1ja6gitijbn1jmo Initialize data repository
 
 => Round-trip complete. Run tree: /home/developer/gits/dolt-explainer/runs/03-roundtrip

@@ -13,17 +13,17 @@ origin file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-sto
 
 ---- Push from Clone A — this materializes chunk files under /home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store ----
 $ dolt push -u origin main
-- Uploading...- Uploading...\ Uploading...To file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
+- Uploading...- Uploading...To file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
  * [new branch]          main -> main
 branch 'main' set up to track 'origin/main'.
               
 ---- What does the remote look like on disk? ----
 $ ls /home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store
 LOCK
-f6e5h3uepjajeqrccor8119h5jrsqnsj
 manifest
+n4r0u75251np62s9tpg3co6kejf32skf
+nqedq5q9t7j13l32dclrrbdbguv35gun.darc
 oldgen
-rges5a59b9cde5nldmhadbo2odubiu3g.darc
 
 ---- Clone B: pull the whole database from file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store ----
 $ dolt clone file:///home/developer/gits/dolt-explainer/runs/02-file-remote/remote-store /home/developer/gits/dolt-explainer/runs/02-file-remote/cloneB

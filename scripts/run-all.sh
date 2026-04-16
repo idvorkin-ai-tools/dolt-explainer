@@ -10,7 +10,7 @@ mkdir -p "$(dirname "$OUT")"
 LIVE=0
 [[ "${1:-}" == "--live" ]] && LIVE=1
 
-SCRIPTS=(01-bootstrap.sh 02-file-remote.sh 03-roundtrip.sh 04-clean-merge.sh 05-conflict.sh 06-github-illusion.sh)
+SCRIPTS=(01-bootstrap.sh 02-file-remote.sh 03-roundtrip.sh 04-clean-merge.sh 05-conflict.sh 06-github-illusion.sh 07-fork-workflow.sh)
 (( LIVE )) && SCRIPTS+=(06b-github-live.sh)
 
 : > "$OUT"

@@ -1,0 +1,50 @@
+@startuml fork-workflow
+title The fork workflow has a hole when refs/dolt/data carries the payload
+
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName "Helvetica"
+skinparam rectangle {
+    BackgroundColor #FAFAFA
+    BorderColor #666
+    RoundCorner 8
+}
+
+cloud "UPSTREAM\nidvorkin/dolt-thing" as UP #E6F4EA {
+    rectangle "refs/heads/main\n(README — seed)" as UP_H #D9EDFF
+    rectangle "refs/dolt/data\n(STALE after AI push)" as UP_D #F5C2C7
+}
+
+cloud "FORK\nidvorkin-ai-tools/dolt-thing" as FK #FFF8D6 {
+    rectangle "refs/heads/main\n(README — same seed)" as FK_H #D9EDFF
+    rectangle "refs/dolt/data\n(has AI's new row)" as FK_D #C4E2AC
+}
+
+node "AI-tools dev box\n(fork write only)" as DEV #EAF3FF
+node "Igor\n(upstream write)" as ADMIN #EAF3FF
+
+DEV -[#0969DA]-> FK_D : dolt push origin main\nadvances refs/dolt/data
+DEV -[#999,dashed]-> FK_H : refs/heads/main unchanged\n(dolt doesn't touch it)
+
+UP_H -[hidden]- FK_H
+UP_D -[hidden]- FK_D
+
+note bottom of FK
+  PR fork->upstream compares
+  refs/heads/main on both sides.
+  Both are the seed commit.
+  **GitHub diff view is empty.**
+  Merge button advances nothing
+  useful — refs/dolt/data stays
+  stale on upstream.
+end note
+
+ADMIN -[#C0A02E]-> UP_D : dolt fetch fork\n+ dolt merge fork/main\n+ dolt push upstream main
+note right of ADMIN
+  Only path that actually
+  moves the data to upstream.
+  Requires upstream write —
+  AI-tools does not have it.
+end note
+
+@enduml

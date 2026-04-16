@@ -31,7 +31,7 @@ branch 'main' set up to track 'origin/main'.
 
 ---- What 'GitHub UI' would show — only refs/heads/* counts for the file browser ----
 $ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git log --oneline refs/heads/main
-65d1794 initial
+1037b83 initial
 
 $ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git ls-tree refs/heads/main
 100644 blob 3050d4dd57345f2f3b263f0e17751f0675ce87b5	README.md
@@ -39,22 +39,22 @@ $ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake
 
 ---- But 'git ls-remote' (and GitHub's API) reveals the hidden ref ----
 $ git ls-remote /home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git
-65d17949bda1c74813d67f9d1c3dbdafc2a6df96	HEAD
-2b29cbafad8eef40a02846676c11f56218fb933b	refs/dolt/data
-65d17949bda1c74813d67f9d1c3dbdafc2a6df96	refs/heads/main
+1037b8361854385048c70a8d27c5aeb82cad938b	HEAD
+af249fe2a79059a6ce33197a67ec6f98415d7ff5	refs/dolt/data
+1037b8361854385048c70a8d27c5aeb82cad938b	refs/heads/main
 (there it is — refs/dolt/data, same SHA family that dolt pushed)
 
 ---- Peek inside refs/dolt/data — it's a commit whose tree is dolt's chunk store ----
-$ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git ls-tree 2b29cbafad8eef40a02846676c11f56218fb933b
-100644 blob 4a29b9f9593731f8c6155bc401cb3f3a424e1fb4	l5kb6p6in27ni1tkq2glalblsuoe28ds
-100644 blob e9614ef3df9d5e6e514cf37624ed4d263bcc9ec2	manifest
-100644 blob 3ed4398bb24f888eb1b4cbcf883130c6378b26e9	q5ctt21933663h8754r8f8pm0mq783mc.darc
+$ git --git-dir=/home/developer/gits/dolt-explainer/runs/06-github-illusion/fake-github.git ls-tree af249fe2a79059a6ce33197a67ec6f98415d7ff5
+100644 blob 8cc0f16d6ff7bbda6d6cd217fde4ad027223ef15	26v2bu2oml7ahkr3jnfc8sadd51q4j71.darc
+100644 blob aa25eb5c91cd38b789047112bac3efa44d95c7f7	9opd2kto03fa0ddg9fjnvs1h3tji09uv
+100644 blob b6cf36a7be808cbebee6173ab6d1afa4db769a04	manifest
 (manifest + .darc archive + content-addressed Noms chunks — opaque to git)
 
 ---- ===== PROVING IT ROUND-TRIPS ===== ----
 
 ---- Clone the bare-git URL with DOLT — it fetches refs/dolt/data and rebuilds the DB ----
-[1A[J7 of 9 chunks complete. 2 chunks being downloaded currently.
+[1A[J2 of 9 chunks complete. 7 chunks being downloaded currently.
 [1A[J9 of 9 chunks complete. 0 chunks being downloaded currently.
 [1A[J9 of 9 chunks complete.
 $ (cd /home/developer/gits/dolt-explainer/runs/06-github-illusion/dolt-restored && dolt sql -q "SELECT * FROM items;")

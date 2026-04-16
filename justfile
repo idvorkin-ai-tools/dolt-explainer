@@ -16,7 +16,7 @@ rebuild-transcripts:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p transcripts
-    for s in 01-bootstrap 02-file-remote 03-roundtrip 04-clean-merge 05-conflict 06-github-illusion; do
+    for s in 01-bootstrap 02-file-remote 03-roundtrip 04-clean-merge 05-conflict 06-github-illusion 07-fork-workflow; do
         echo "--- $s ---"
         ./scripts/$s.sh 2>&1 | sed -r 's/\x1b\[[0-9;]*[mGKH]//g' > transcripts/$s.txt
     done

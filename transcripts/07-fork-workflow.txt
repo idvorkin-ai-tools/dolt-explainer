@@ -1,0 +1,124 @@
+
+================================================================
+  SCENARIO 7 — fork workflow (upstream authoritative + fork push/pull)
+================================================================
+
+---- Bootstrap upstream — bare git repo seeded with a README commit ----
+To /home/developer/gits/dolt-explainer/runs/07-fork-workflow/upstream.git
+ * [new branch]      main -> main
+
+---- Bootstrap fork — mirror of upstream (what a GitHub 'Fork' button creates) ----
+
+---- Upstream owner seeds the dolt database first, pushes to upstream ----
+(upstream now has refs/heads/main AND refs/dolt/data with the seed database)
+
+---- Inspect upstream — what refs exist ----
+$ git ls-remote file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/upstream.git
+a307a3bd568ff124f33c66451e477bfa2d1ff381	HEAD
+5a337734cc50f1caee0d63fdbf4e47049ac9afb4	refs/dolt/data
+a307a3bd568ff124f33c66451e477bfa2d1ff381	refs/heads/main
+
+---- Fork is stale — still only has the pre-dolt seed README ----
+$ git ls-remote file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/fork.git
+a307a3bd568ff124f33c66451e477bfa2d1ff381	HEAD
+a307a3bd568ff124f33c66451e477bfa2d1ff381	refs/heads/main
+
+---- Sync the fork from upstream (what GitHub does on 'Fork: Sync') ----
+$ git ls-remote file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/fork.git   (after fork sync)
+a307a3bd568ff124f33c66451e477bfa2d1ff381	HEAD
+5a337734cc50f1caee0d63fdbf4e47049ac9afb4	refs/dolt/data
+a307a3bd568ff124f33c66451e477bfa2d1ff381	refs/heads/main
+
+---- ===== DEV BOX (simulating idvorkin-ai-tools) ===== ----
+
+---- Dev clones from upstream but will PUSH only to fork ----
+$ dolt remote -v
+upstream git+file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/upstream.git 
+origin git+file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/fork.git 
+
+---- Dev makes a data change — inserts a row, commits ----
+$ dolt sql -q INSERT INTO items VALUES (42,'ai-row',1);
+$ dolt add items
+$ dolt commit -m ai-tools: add row 42
+commit f2lbtk3nl882uv88vptirqv2u9u3ftdu (HEAD -> main) 
+Author: Igor Dvorkin <idvorkin@gmail.com>
+Date:  Thu Apr 16 17:03:55 +0000 2026
+
+	ai-tools: add row 42
+
+
+---- Dev pushes to fork (origin). This updates fork's refs/dolt/data. ----
+- Uploading...- Uploading...To git+file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/fork.git
+ * [new branch]          main -> main
+              
+---- ===== OBSERVE: the fork now has new data; upstream does not ===== ----
+
+---- Compare refs/dolt/data SHAs between fork and upstream ----
+fork     refs/dolt/data = f6ce4b74d3074a694bc7a3475ef9056cd81fbd40
+upstream refs/dolt/data = 5a337734cc50f1caee0d63fdbf4e47049ac9afb4
+(different — the database change landed on fork but NOT upstream)
+
+---- ===== THE GITHUB PR PROBLEM ===== ----
+
+---- If you opened a PR from fork->upstream, GitHub would compute the diff ----
+
+---- of refs/heads/main on both sides. Let's compute that diff. ----
+fork     refs/heads/main = a307a3bd568ff124f33c66451e477bfa2d1ff381
+upstream refs/heads/main = a307a3bd568ff124f33c66451e477bfa2d1ff381
+
+>>> GitHub would show: 'There isn't anything to compare.' <<<
+>>> The diff view for the PR would be empty. <<<
+>>> The actual data change is invisible to GitHub's PR UI. <<<
+
+---- ===== WHAT CAN A GITHUB 'MERGE PR' BUTTON ACTUALLY DO? ===== ----
+
+---- Simulate the merge: fast-forward upstream's refs/heads/main from fork's ----
+After GitHub-style merge:
+$ git ls-remote file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/upstream.git
+a307a3bd568ff124f33c66451e477bfa2d1ff381	HEAD
+5a337734cc50f1caee0d63fdbf4e47049ac9afb4	refs/dolt/data
+a307a3bd568ff124f33c66451e477bfa2d1ff381	refs/heads/main
+
+Note: refs/dolt/data on upstream is STILL 5a337734cc50f1caee0d63fdbf4e47049ac9afb4
+      fork's refs/dolt/data is STILL f6ce4b74d3074a694bc7a3475ef9056cd81fbd40
+      GitHub's merge operation only moved refs/heads/main.
+
+---- ===== WHAT WOULD IT LOOK LIKE IF ADMIN PULLED DATA LOCALLY? ===== ----
+
+---- Upstream owner fetches from fork + merges + pushes back ----
+$ dolt fetch fork main
+- Fetching...             Updating f2lbtk3nl882uv88vptirqv2u9u3ftdu..f2lbtk3nl882uv88vptirqv2u9u3ftdu
+items | 1 +
+1 tables changed, 1 rows added(+), 0 rows modified(*), 0 rows deleted(-)
+- Uploading...- Uploading...To git+file:///home/developer/gits/dolt-explainer/runs/07-fork-workflow/upstream.git
+ * [new branch]          main -> main
+              
+---- Now upstream has the AI-tools commit on BOTH refs ----
+upstream refs/dolt/data was: 5a337734cc50f1caee0d63fdbf4e47049ac9afb4
+upstream refs/dolt/data now: f6ce4b74d3074a694bc7a3475ef9056cd81fbd40
+
+---- Verify upstream has row 42 ----
+$ (cd /home/developer/gits/dolt-explainer/runs/07-fork-workflow/admin-clone && dolt sql -q "SELECT * FROM items WHERE id = 42;")
++----+--------+-----+
+| id | name   | qty |
++----+--------+-----+
+| 42 | ai-row | 1   |
++----+--------+-----+
+
+
+================================================================
+  CONCLUSION
+================================================================
+1. dolt remote add + fetch + push with multiple remotes works like git.
+2. A GitHub PR from fork -> upstream shows an EMPTY diff, because the
+   web UI only looks at refs/heads/* which are typically identical.
+3. The GitHub 'Merge PR' button only fast-forwards refs/heads/main.
+   refs/dolt/data on upstream stays stale — the data change is LOST
+   from upstream's perspective unless someone with upstream-write pulls
+   locally and pushes refs/dolt/data up.
+4. For Igor's case (ai-tools has fork-write only), the admin (idvorkin)
+   must pull from fork + dolt merge + dolt push upstream. No pure-
+   GitHub workflow exists on vanilla refs. DoltHub solves this by
+   making PRs dolt-aware.
+
+=> Run tree: /home/developer/gits/dolt-explainer/runs/07-fork-workflow

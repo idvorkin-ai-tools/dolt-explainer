@@ -23,17 +23,17 @@ Untracked tables:
 ---- Stage and commit the table (same two-phase model as git) ----
 $ dolt add items
 $ dolt commit -m seed items
-commit 90b6bmpkloq7lm7m7n0v45flg091cd28 (HEAD -> main) 
+commit pulta64rtn1duko68sg966pn704rh4pj (HEAD -> main) 
 Author: Demo <demo@example.com>
-Date:  Thu Apr 16 16:33:46 +0000 2026
+Date:  Thu Apr 16 17:03:44 +0000 2026
 
 	seed items
 
 
 ---- Inspect the history — one commit, with the same shape as git log ----
 $ dolt log --oneline
-90b6bmpkloq7lm7m7n0v45flg091cd28 (HEAD -> main) seed items
-bhvqnc4eaar64i350rqj5r1k3gujecit Initialize data repository
+pulta64rtn1duko68sg966pn704rh4pj (HEAD -> main) seed items
+vubaq6aefmapfur62fkt9atk8tkcar7a Initialize data repository
 
 ---- Query it — this is just SQL, the table round-trips through the commit ----
 $ dolt sql -q SELECT * FROM items;

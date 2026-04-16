@@ -80,6 +80,40 @@ $ dolt commit -am 'merge: keep their value'</code></pre>
 
 <hr>
 
+<h2>The fork-workflow problem</h2>
+
+<p>If you use the idvorkin / idvorkin-ai-tools split — canonical upstream owned by a human, fork writable by AI tools, landings go via GitHub PR — Dolt's ref layout introduces a hole the plain Git workflow doesn't have.</p>
+
+<p><img src="diagrams/fork-workflow.svg" alt="Dev box pushes refs/dolt/data to fork; refs/heads/main stays the seed commit on both fork and upstream. A PR fork-to-upstream compares refs/heads/main on both sides, which are identical, so the diff is empty. GitHub's Merge PR button advances refs/heads/main only, leaving refs/dolt/data on upstream stale. Only an admin pulling with dolt merge and pushing to upstream actually moves the data." style="max-width:100%;height:auto;display:block;margin:1rem auto;"></p>
+
+<p>Three things all go wrong at once:</p>
+
+<ol>
+  <li><strong><code>dolt push</code> doesn't update <code>refs/heads/main</code>.</strong> A Dolt push writes to <code>refs/dolt/data</code> only. The seed commit on <code>refs/heads/main</code> stays put, on both fork and upstream, from the moment the repo was created.</li>
+  <li><strong>GitHub's PR diff shows "nothing to compare."</strong> The compare view diffs <code>refs/heads/&lt;base&gt;..refs/heads/&lt;head&gt;</code>. Both sides are the same seed commit, so GitHub says the PR is empty — even though the fork's database differs from upstream's.</li>
+  <li><strong>GitHub's "Merge PR" button only advances <code>refs/heads/main</code>.</strong> It can't move <code>refs/dolt/data</code>. Clicking Merge changes nothing for the database. The data stays on the fork; upstream's <code>refs/dolt/data</code> is still whatever it was before the PR was opened.</li>
+</ol>
+
+<p>The only path that actually lands AI-tools' data into upstream is one the AI tools can't take, because they don't have upstream write:</p>
+
+<pre><code># Human admin with upstream write runs locally:
+dolt remote add fork https://github.com/idvorkin-ai-tools/dolt-thing.git
+dolt fetch fork main
+dolt merge fork/main
+dolt push upstream main       # this push carries refs/dolt/data to upstream</code></pre>
+
+<p>If you want a fork-model where AI tools can fully self-serve, the options are:</p>
+
+<ul>
+  <li>Ship AI tools upstream write (defeats the fork boundary).</li>
+  <li>Add a GitHub Action on upstream that reacts to PR-merged and pulls <code>refs/dolt/data</code> from the fork. Doable, but you're writing custom glue every time.</li>
+  <li>Use <a href="https://www.dolthub.com/">DoltHub</a> instead of GitHub as the remote — it has dolt-aware pull requests that diff tables and merge <code>refs/dolt/data</code> when you click Merge.</li>
+</ul>
+
+<p>Scenario 7 below reproduces all three failure modes locally with two bare git repos standing in for upstream and fork.</p>
+
+<hr>
+
 <h2>Scenarios</h2>
 <p>Six reproducible shell scripts. Each wipes its own run directory, sets up fresh state, and leaves artifacts for you to poke at. <code>./scripts/run-all.sh</code> runs them end-to-end in ~20 seconds, offline.</p>
 
@@ -119,6 +153,12 @@ $ dolt commit -am 'merge: keep their value'</code></pre>
   <pre><code id="t6">Loading…</code></pre>
 </details>
 
+<details id="s7">
+  <summary><span class="scenario-num">7.</span> Fork workflow — <em>upstream + fork + the PR hole</em></summary>
+  <p>Two bare git repos simulate the idvorkin / idvorkin-ai-tools pattern. Dev pushes to fork; compare fork's and upstream's refs. Observe that the PR diff view would be empty and that GitHub's merge button does not move <code>refs/dolt/data</code>. Ends with the only workflow that actually works: admin pulls from fork, <code>dolt merge</code>s locally, and pushes to upstream.</p>
+  <pre><code id="t7">Loading…</code></pre>
+</details>
+
 <hr>
 
 <h2>Research notes</h2>
@@ -147,6 +187,7 @@ const TRANSCRIPTS = [
   {id: 't4', src: 'transcripts/04-clean-merge.txt'},
   {id: 't5', src: 'transcripts/05-conflict.txt'},
   {id: 't6', src: 'transcripts/06-github-illusion.txt'},
+  {id: 't7', src: 'transcripts/07-fork-workflow.txt'},
 ];
 for (const {id, src} of TRANSCRIPTS) {
   fetch(src)
